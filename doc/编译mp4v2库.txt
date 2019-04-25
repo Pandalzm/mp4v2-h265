@@ -1,0 +1,4 @@
+
+./configure --prefix=/mnt/hgfs/share/mp4v2-2.0.0_end/temp
+make
+make install
