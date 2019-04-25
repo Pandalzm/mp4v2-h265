@@ -62,6 +62,8 @@ StandardFileProvider::open( std::string name, Mode mode )
             om |= ios::in | ios::out | ios::trunc;
             _seekg = true;
             _seekp = true;
+            printf("=========> delete file \n");
+            unlink(name.c_str());
             break;
     }
 

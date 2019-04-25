@@ -330,7 +330,8 @@ static char* PrintVideoInfo(
         foundTypeName = true;
     }
 	else if ((strcasecmp(media_data_name, "hev1") == 0) ||
-				  (strcasecmp(originalFormat, "265b") == 0)) {
+				(strcasecmp(media_data_name, "hvc1") == 0) ||
+				(strcasecmp(originalFormat, "265b") == 0)) {
 		   // avc
 		   uint8_t profile, level;
 		   char profileb[20], levelb[20];

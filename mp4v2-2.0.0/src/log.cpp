@@ -25,6 +25,9 @@
 #include <iostream>
 #include "src/impl.h"
 
+/* add by liwei */
+#include <sys/stat.h>
+
 namespace mp4v2 { namespace impl {
 
 using namespace mp4v2::platform::time;

@@ -715,14 +715,14 @@ void MP4Track::FinishSdtp()
 		bool found = false;
 		const uint32_t max = ftyp->compatibleBrands.GetCount();
 		for( uint32_t i = 0; i < max; i++ ) {
-			if( !strcmp( ftyp->compatibleBrands.GetValue( i ), "hev1" )) {
+			if( !strcmp( ftyp->compatibleBrands.GetValue( i ), "hev1" ) || !strcmp( ftyp->compatibleBrands.GetValue( i ), "hvc1" )) {
 				found = true;
 				break;
 			}
 		}
 	
 		if( !found )
-			ftyp->compatibleBrands.AddValue( "hev1" );
+			ftyp->compatibleBrands.AddValue( "hvc1" );
 	}
 }
 

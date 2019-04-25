@@ -1250,7 +1250,7 @@ MP4FileHandle MP4ReadProvider( const char* fileName, const MP4FileProvider* file
 			try {
 	
 				pFile = (MP4File *)srcFile;
-				srcAtom = pFile->FindTrackAtom(srcTrackId, "mdia.minf.stbl.stsd.hev1.hvcC");
+				srcAtom = pFile->FindTrackAtom(srcTrackId, "mdia.minf.stbl.stsd.hvc1.hvcC");
 				if (srcAtom == NULL)
 					return MP4_INVALID_TRACK_ID;
 	
@@ -1930,7 +1930,7 @@ MP4FileHandle MP4ReadProvider( const char* fileName, const MP4FileProvider* file
                 }
                 free(pictheader);
                 free(pictheadersize);
-            } else if (ATOMID(media_data_name) == ATOMID("hev1")) {
+            } else if (ATOMID(media_data_name) == ATOMID("hev1") || ATOMID(media_data_name) == ATOMID("hvc1")) {
                 uint8_t AVCProfileIndication;
                 uint8_t profile_compat;
                 uint8_t AVCLevelIndication;
@@ -2140,7 +2140,7 @@ MP4FileHandle MP4ReadProvider( const char* fileName, const MP4FileProvider* file
                                                      srcTrackId,
                                                      icPp
                                                     );
-            }else if (!strcasecmp(oFormat, "hev1"))//cwm
+            }else if (!strcasecmp(oFormat, "hev1") || !strcasecmp(oFormat, "hvc1"))//cwm
             {
                 dstTrackId = MP4AddEncH265VideoTrack(dstFile,
                                                      MP4GetTrackTimeScale(srcFile, srcTrackId),
@@ -4733,6 +4733,8 @@ MP4FileHandle MP4ReadProvider( const char* fileName, const MP4FileProvider* file
         	if(g_isH265 == 1)
         	{
             	hev1 = track->GetTrakAtom().FindChildAtom("mdia.minf.stbl.stsd.hev1");
+				if (NULL == hev1)
+					hev1 = track->GetTrakAtom().FindChildAtom("mdia.minf.stbl.stsd.hvc1");
 			}else
 			{
             	avc1 = track->GetTrakAtom().FindChildAtom("mdia.minf.stbl.stsd.avc1");

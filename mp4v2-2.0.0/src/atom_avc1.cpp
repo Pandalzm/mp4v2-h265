@@ -92,7 +92,7 @@ void MP4Avc1Atom::Generate()
 
 //===================================================================cwm
 MP4Hev1Atom::MP4Hev1Atom(MP4File &file)
-        : MP4Atom(file, "hev1")
+        : MP4Atom(file, "hvc1")
 {
 #if 0 //cwm 97
     AddReserved(*this, "reserved1", 0); /* 0 *///78    

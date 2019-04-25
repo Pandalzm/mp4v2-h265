@@ -137,6 +137,7 @@ typedef struct HEVCDecoderConfigurationRecord {
     uint8_t  temporalIdNested;//cwm 计算得到, 1(sps)
     uint8_t  lengthSizeMinusOne;//cwm 计算得到,3 ?
     uint8_t  numOfArrays;
+	uint8_t  init;			/* add by liwei */
     HVCCNALUnitArray *array;
 } HEVCDecoderConfigurationRecord;
 

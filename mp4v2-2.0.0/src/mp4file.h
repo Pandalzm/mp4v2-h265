@@ -1211,6 +1211,8 @@ public:
 	uint8_t		m_ppsCount;
 	HEVCDecoderConfigurationRecord m_hvccDecoder;
 	HVCCData	m_hvccData;
+	/* add by liwei */
+	int 		m_codec;		/* 0: h264  1: h265 */
 };
 
 ///////////////////////////////////////////////////////////////////////////////

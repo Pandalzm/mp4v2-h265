@@ -421,6 +421,7 @@ void MP4File::Init()
 	m_IsCloseFlag = false;
 	m_SelfDataMode = 0;
 	m_IsHead = true;
+	m_hvccDecoder.init = 0;		/* add by liwei */
 
 	if(m_realtimeModeBeforeOpen == 0)
 	{
@@ -492,7 +493,6 @@ void MP4File::Read( const char* name, const MP4FileProvider* provider )
     ReadFromFile();
     CacheProperties();
 	milliseconds_t t2 = getLocalTimeSeconds();
-	log.errorf("ReadFileTime=%llu.\n", t2-t1);
 }
 
 void* MP4File::DbgInfoFun(void* param)
@@ -544,7 +544,6 @@ void MP4File::Create( const char* fileName,
         (void)AddChildAtom("moov", "iods");
     }
 	
-	log.errorf("start id=%p.\n", m_file);
 #if 0
 	pthread_t heartbeat_id;
 	pthread_create(&heartbeat_id, NULL, DbgInfoFun, (void*)this);
@@ -1165,9 +1164,7 @@ void MP4File::Close(uint32_t options)
 		}
 	}
 
-	log.errorf("end id=%p.\n", m_file);
     delete m_file;
-	log.errorf("delete m_file\n");
     m_file = NULL;
 }
 
@@ -2384,51 +2381,51 @@ MP4TrackId MP4File::ModH265VideoTrack(MP4TrackId trackId)
 	uint8_t sampleLenFieldSizeMinusOne = m_hvccData.m_hvcC_constantFrameRate_numTemporalLayers_temporalIdNested_lengthSizeMinusOne_1B;
 	uint8_t m_hvcC_numOfArrays_1B = m_hvccData.m_hvcC_numOfArrays_1B;
 	
-	//tTrackIntegerProperty(trackId,
-	//				"mdia.minf.stbl.stsd.hev1.width", width);
-	//tTrackIntegerProperty(trackId,
-	//				"mdia.minf.stbl.stsd.hev1.height", height);
+	//SetTrackIntegerProperty(trackId,
+	//				"mdia.minf.stbl.stsd.hvc1.width", width);
+	//SetTrackIntegerProperty(trackId,
+	//				"mdia.minf.stbl.stsd.hvc1.height", height);
 
 	SetTrackIntegerProperty(trackId,
-							"mdia.minf.stbl.stsd.hev1.hvcC.AVCProfileIndication",
+							"mdia.minf.stbl.stsd.hvc1.hvcC.AVCProfileIndication",
 							AVCProfileIndication);
 	SetTrackIntegerProperty(trackId,
-							"mdia.minf.stbl.stsd.hev1.hvcC.profile_compatibility",
+							"mdia.minf.stbl.stsd.hvc1.hvcC.profile_compatibility",
 							m_hvcC_profile_compatibility_flags_4B);
 	SetTrackIntegerProperty(trackId,
-							"mdia.minf.stbl.stsd.hev1.hvcC.AVCLevelIndication",
+							"mdia.minf.stbl.stsd.hvc1.hvcC.AVCLevelIndication",
 							m_hvcC_constraint_indicator_flags_4B);
 
 	SetTrackIntegerProperty(trackId,
-							"mdia.minf.stbl.stsd.hev1.hvcC.m_constraint_indicator_flags_2B",
+							"mdia.minf.stbl.stsd.hvc1.hvcC.m_constraint_indicator_flags_2B",
 							m_constraint_indicator_flags_2B);
 	SetTrackIntegerProperty(trackId,
-							"mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_level_idc_1B",
+							"mdia.minf.stbl.stsd.hvc1.hvcC.m_hvcC_level_idc_1B",
 							m_hvcC_level_idc_1B);
 	SetTrackIntegerProperty(trackId,
-							"mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_min_spatial_segmentation_idc_2B",
+							"mdia.minf.stbl.stsd.hvc1.hvcC.m_hvcC_min_spatial_segmentation_idc_2B",
 							m_hvcC_min_spatial_segmentation_idc_2B);
 	SetTrackIntegerProperty(trackId,
-							"mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_parallelismType_1B",
+							"mdia.minf.stbl.stsd.hvc1.hvcC.m_hvcC_parallelismType_1B",
 							m_hvcC_parallelismType_1B);
 	SetTrackIntegerProperty(trackId,
-							"mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_chromaFormat_1B",
+							"mdia.minf.stbl.stsd.hvc1.hvcC.m_hvcC_chromaFormat_1B",
 							m_hvcC_chromaFormat_1B);
 	SetTrackIntegerProperty(trackId,
-							"mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_bitDepthLumaMinus8_1B",
+							"mdia.minf.stbl.stsd.hvc1.hvcC.m_hvcC_bitDepthLumaMinus8_1B",
 							m_hvcC_bitDepthLumaMinus8_1B);
 	SetTrackIntegerProperty(trackId,
-							"mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_bitDepthChromaMinus8_1B",
+							"mdia.minf.stbl.stsd.hvc1.hvcC.m_hvcC_bitDepthChromaMinus8_1B",
 							m_hvcC_bitDepthChromaMinus8_1B);
 	SetTrackIntegerProperty(trackId,
-							"mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_avgFrameRate_2B",
+							"mdia.minf.stbl.stsd.hvc1.hvcC.m_hvcC_avgFrameRate_2B",
 							m_hvcC_avgFrameRate_2B);
 
 	SetTrackIntegerProperty(trackId,
-							"mdia.minf.stbl.stsd.hev1.hvcC.lengthSizeMinusOne",
+							"mdia.minf.stbl.stsd.hvc1.hvcC.lengthSizeMinusOne",
 							sampleLenFieldSizeMinusOne);
 	SetTrackIntegerProperty(trackId,
-							"mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_numOfArrays_1B",
+							"mdia.minf.stbl.stsd.hvc1.hvcC.m_hvcC_numOfArrays_1B",
 							m_hvcC_numOfArrays_1B);
 	
 	return trackId;
@@ -2445,11 +2442,11 @@ MP4TrackId MP4File::AddH265VideoTrack(
     uint8_t AVCLevelIndication,
     uint8_t sampleLenFieldSizeMinusOne)
 {
-    MP4TrackId trackId = AddVideoTrackDefault(timeScale,
-                         sampleDuration,
-                         width,
-                         height,
-                         "hev1");
+	MP4TrackId trackId = AddVideoTrackDefault(timeScale,
+						 sampleDuration,
+						 width,
+						 height,
+						 "hvc1");
 	
 #if 1 //cwm
 
@@ -2468,52 +2465,52 @@ MP4TrackId MP4File::AddH265VideoTrack(
 	uint8_t m_hvcC_numOfArrays_1B = 0x03;//0x03
 	
     SetTrackIntegerProperty(trackId,
-                            "mdia.minf.stbl.stsd.hev1.width", width);
+                            "mdia.minf.stbl.stsd.hvc1.width", width);
     SetTrackIntegerProperty(trackId,
-                            "mdia.minf.stbl.stsd.hev1.height", height);
+                            "mdia.minf.stbl.stsd.hvc1.height", height);
 
     SetTrackIntegerProperty(trackId,
-                            "mdia.minf.stbl.stsd.hev1.hvcC.AVCProfileIndication",
+                            "mdia.minf.stbl.stsd.hvc1.hvcC.AVCProfileIndication",
                             AVCProfileIndication);
     SetTrackIntegerProperty(trackId,
-                            "mdia.minf.stbl.stsd.hev1.hvcC.profile_compatibility",
+                            "mdia.minf.stbl.stsd.hvc1.hvcC.profile_compatibility",
                             m_hvcC_profile_compatibility_flags_4B);
     SetTrackIntegerProperty(trackId,
-                            "mdia.minf.stbl.stsd.hev1.hvcC.AVCLevelIndication",
+                            "mdia.minf.stbl.stsd.hvc1.hvcC.AVCLevelIndication",
                             m_hvcC_constraint_indicator_flags_4B);
 	#if 1 //cwm 2398
 
     SetTrackIntegerProperty(trackId,
-                            "mdia.minf.stbl.stsd.hev1.hvcC.m_constraint_indicator_flags_2B",
+                            "mdia.minf.stbl.stsd.hvc1.hvcC.m_constraint_indicator_flags_2B",
                             m_constraint_indicator_flags_2B);
     SetTrackIntegerProperty(trackId,
-                            "mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_level_idc_1B",
+                            "mdia.minf.stbl.stsd.hvc1.hvcC.m_hvcC_level_idc_1B",
                             m_hvcC_level_idc_1B);
     SetTrackIntegerProperty(trackId,
-                            "mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_min_spatial_segmentation_idc_2B",
+                            "mdia.minf.stbl.stsd.hvc1.hvcC.m_hvcC_min_spatial_segmentation_idc_2B",
                             m_hvcC_min_spatial_segmentation_idc_2B);
     SetTrackIntegerProperty(trackId,
-                            "mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_parallelismType_1B",
+                            "mdia.minf.stbl.stsd.hvc1.hvcC.m_hvcC_parallelismType_1B",
                             m_hvcC_parallelismType_1B);
     SetTrackIntegerProperty(trackId,
-                            "mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_chromaFormat_1B",
+                            "mdia.minf.stbl.stsd.hvc1.hvcC.m_hvcC_chromaFormat_1B",
                             m_hvcC_chromaFormat_1B);
     SetTrackIntegerProperty(trackId,
-                            "mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_bitDepthLumaMinus8_1B",
+                            "mdia.minf.stbl.stsd.hvc1.hvcC.m_hvcC_bitDepthLumaMinus8_1B",
                             m_hvcC_bitDepthLumaMinus8_1B);
     SetTrackIntegerProperty(trackId,
-                            "mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_bitDepthChromaMinus8_1B",
+                            "mdia.minf.stbl.stsd.hvc1.hvcC.m_hvcC_bitDepthChromaMinus8_1B",
                             m_hvcC_bitDepthChromaMinus8_1B);
     SetTrackIntegerProperty(trackId,
-                            "mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_avgFrameRate_2B",
+                            "mdia.minf.stbl.stsd.hvc1.hvcC.m_hvcC_avgFrameRate_2B",
                             m_hvcC_avgFrameRate_2B);
 
 	#endif //cwm 2398
     SetTrackIntegerProperty(trackId,
-                            "mdia.minf.stbl.stsd.hev1.hvcC.lengthSizeMinusOne",
+                            "mdia.minf.stbl.stsd.hvc1.hvcC.lengthSizeMinusOne",
                             sampleLenFieldSizeMinusOne);
     SetTrackIntegerProperty(trackId,
-                            "mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_numOfArrays_1B",
+                            "mdia.minf.stbl.stsd.hvc1.hvcC.m_hvcC_numOfArrays_1B",
                             m_hvcC_numOfArrays_1B);
 	
 #endif //cwm
@@ -2598,6 +2595,8 @@ MP4TrackId MP4File::AddEncH265VideoTrack(
 
     if (!strcasecmp(format, "hev1"))
         hvcCAtom = FindAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.hev1.hvcC"));
+    else if (!strcasecmp(format, "hvc1"))
+        hvcCAtom = FindAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.hvc1.hvcC"));	
     else if (!strcasecmp(format, "encv"))
         hvcCAtom = FindAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.encv.hvcC"));
     else
@@ -2636,7 +2635,7 @@ MP4TrackId MP4File::AddEncH265VideoTrack(
         }
     }
     SetTrackIntegerProperty(trackId,
-                            "mdia.minf.stbl.stsd.hev1.hvcC.typeOfVideoParameterSets",
+                            "mdia.minf.stbl.stsd.hvc1.hvcC.typeOfVideoParameterSets",
                             0x20);
     pLength->AddValue(videoLen);
     pUnit->AddValue(pVideo, videoLen);
@@ -2675,6 +2674,8 @@ void MP4File::AddH265SequenceParameterSet (MP4TrackId trackId,
 
     if (!strcasecmp(format, "hev1"))
         hvcCAtom = FindAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.hev1.hvcC"));
+    else if (!strcasecmp(format, "hvc1"))
+        hvcCAtom = FindAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.hvc1.hvcC"));	
     else if (!strcasecmp(format, "encv"))
         hvcCAtom = FindAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.encv.hvcC"));
     else
@@ -2713,7 +2714,7 @@ void MP4File::AddH265SequenceParameterSet (MP4TrackId trackId,
         }
     }
     SetTrackIntegerProperty(trackId,
-                            "mdia.minf.stbl.stsd.hev1.hvcC.typeOfSequenceParameterSets",
+                            "mdia.minf.stbl.stsd.hvc1.hvcC.typeOfSequenceParameterSets",
                             0x21);
     pLength->AddValue(sequenceLen);
     pUnit->AddValue(pSequence, sequenceLen);
@@ -2742,9 +2743,7 @@ void MP4File::AddH265PictureParameterSet (MP4TrackId trackId,
         const uint8_t *pPict,
         uint16_t pictLen)
 {
-    MP4Atom *hvcCAtom =
-        FindAtom(MakeTrackName(trackId,
-                               "mdia.minf.stbl.stsd.hev1.hvcC"));
+    MP4Atom *hvcCAtom = FindAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.hvc1.hvcC"));
     MP4Integer8Property *pCount;
     MP4Integer16Property *pLength;
     MP4BytesProperty *pUnit;
@@ -2780,7 +2779,7 @@ void MP4File::AddH265PictureParameterSet (MP4TrackId trackId,
         }
     }
     SetTrackIntegerProperty(trackId,
-                            "mdia.minf.stbl.stsd.hev1.hvcC.typeOfPictureParameterSets",
+                            "mdia.minf.stbl.stsd.hvc1.hvcC.typeOfPictureParameterSets",
                             0x22);
     pLength->AddValue(pictLen);
     pUnit->AddValue(pPict, pictLen);
@@ -3293,6 +3292,12 @@ MP4TrackId MP4File::AddPixelAspectRatio(MP4TrackId trackId, uint32_t hSpacing, u
         SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.hev1.pasp.hSpacing", hSpacing);
         SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.hev1.pasp.vSpacing", vSpacing);
     }
+	else if (!strcasecmp(format, "hvc1"))//for h265 ios
+    {
+        (void)AddChildAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.hvc1"), "pasp");
+        SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.hvc1.pasp.hSpacing", hSpacing);
+        SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.hvc1.pasp.vSpacing", vSpacing);
+    }	
     else if (!strcasecmp(format, "mp4v"))
     {
         (void)AddChildAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.mp4v"), "pasp");
@@ -3326,6 +3331,13 @@ MP4TrackId MP4File::AddColr(MP4TrackId trackId,
         SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.hev1.colr.transferFunctionIndex", transferFunctionIndex);
         SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.hev1.colr.matrixIndex", matrixIndex);
     }
+	else  if (!strcasecmp(format, "hvc1"))//for h265 ios
+    {
+        AddChildAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.hvc1"), "colr");
+        SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.hvc1.colr.primariesIndex", primariesIndex);
+        SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.hvc1.colr.transferFunctionIndex", transferFunctionIndex);
+        SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.hvc1.colr.matrixIndex", matrixIndex);
+    }	
     else if (!strcasecmp(format, "mp4v"))
     {
         AddChildAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.mp4v"), "colr");
@@ -5487,6 +5499,8 @@ void MP4File::GetTrackH265SeqPictHeaders (MP4TrackId trackId,
 
     if (!strcasecmp(format, "hev1"))
         hvcCAtom = FindAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.hev1.hvcC"));
+    if (!strcasecmp(format, "hvc1"))
+        hvcCAtom = FindAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.hvc1.hvcC"));	
     else if (!strcasecmp(format, "encv"))
         hvcCAtom = FindAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.encv.hvcC"));
     else

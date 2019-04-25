@@ -1,8 +1,12 @@
 
 #ifndef LOG_H
 #define LOG_H
-//cwm
+
+#if 0	/* modify by liwei */
 #define DEBUG
+#else
+#undef	DEBUG
+#endif
 
 #ifdef DEBUG
 #define PrintErr(fmt, x...)  printf("%s:%s:%d: " fmt " errno:%d, errMsg:%s\n", __FILE__, __FUNCTION__, __LINE__, ##x, errno, strerror(errno));

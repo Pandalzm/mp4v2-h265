@@ -971,6 +971,8 @@ MP4Atom::factory( MP4File &file, MP4Atom* parent, const char* type )
                 return new MP4VideoAtom( file, type );
             if( ATOMID(type) == ATOMID("href") )
                 return new MP4HrefAtom(file);
+            if( ATOMID(type) == ATOMID("hvc1") )
+                return new MP4Hev1Atom(file);			
             if( ATOMID(type) == ATOMID("hev1") )
                 return new MP4Hev1Atom(file);
             if( ATOMID(type) == ATOMID("hvcC") )

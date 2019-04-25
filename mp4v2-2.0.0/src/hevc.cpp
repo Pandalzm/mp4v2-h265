@@ -502,14 +502,28 @@ void av_free(void *ptr)
     free(ptr);
 }
 
+#if 0	/* modify by liwei */
 void av_freep(void *arg)
 {
     void *val;
 
-    memcpy(&val, arg, sizeof(val));
+    memcpy(&val, arg, sizeof(val));	
     memcpy(arg, &(void *){ NULL }, sizeof(val));
+
     av_free(val);
 }
+#else
+void av_freep(void *arg)
+{
+    void *val;
+	void *tmp = {NULL};
+
+    memcpy(&val, arg, sizeof(val));	
+    memcpy(arg, &tmp, sizeof(val));
+
+    av_free(val);
+}
+#endif
 
 void *av_mallocz(size_t size)
 {
@@ -1185,9 +1199,9 @@ static int hvcc_array_add_nal_unit(uint8_t *nal_buf, uint32_t nal_size,
     array->numNalus++;//nalµÄ¸öÊý
 
     /*
-     * When the sample entry name is â€˜hvc1â€™, the default and mandatory value of
+     * When the sample entry name is the default and mandatory value of
      * array_completeness is 1 for arrays of all types of parameter sets, and 0
-     * for all other arrays. When the sample entry name is â€˜hev1â€™, the default
+     * for all other arrays. When the sample entry name is the default
      * value of array_completeness is 0 for all arrays.
      */
     if (nal_type == NAL_VPS || nal_type == NAL_SPS || nal_type == NAL_PPS)
@@ -1250,7 +1264,13 @@ static int hvcc_add_nal_unit(uint8_t *nal_buf, uint32_t nal_size,
     }
 
 end:
+#if 0	/* modify by liwei */
     av_free(rbsp_buf);//cwm_add
+#else
+	if (rbsp_buf)
+		av_free(rbsp_buf);//cwm_add
+	else
+#endif
     return ret;
 }
 
@@ -1272,6 +1292,8 @@ static void hvcc_init(HEVCDecoderConfigurationRecord *hvcc)
      * whether we didn't see any VUI (in which case it should be reset to zero).
      */
     hvcc->min_spatial_segmentation_idc = MAX_SPATIAL_SEGMENTATION + 1;
+	/* add by liwei */
+	hvcc->init = 1;
 }
 
 static void hvcc_close(HEVCDecoderConfigurationRecord *hvcc)
@@ -1286,6 +1308,7 @@ static void hvcc_close(HEVCDecoderConfigurationRecord *hvcc)
 
     hvcc->numOfArrays = 0;
     av_freep(&hvcc->array);//cwm _add
+	hvcc->init = 0;		/* add by liwei */
 }
 
 static int hvcc_write(AVIOContext *pb_tmp, HEVCDecoderConfigurationRecord *hvcc)
@@ -1368,31 +1391,31 @@ static int hvcc_write(AVIOContext *pb_tmp, HEVCDecoderConfigurationRecord *hvcc)
     avio_w8(pb, hvcc->general_level_idc);//cwm, 0x5d
 
     /*
-     * bit(4) reserved = â€˜1111â€™b;
+     * bit(4) reserved = â€?111â€™b;
      * unsigned int(12) min_spatial_segmentation_idc;
      */
     avio_wb16(pb, hvcc->min_spatial_segmentation_idc | 0xf000);//cwm , 0 | 0xf000=0xf000
 
     /*
-     * bit(6) reserved = â€˜111111â€™b;
+     * bit(6) reserved = â€?11111â€™b;
      * unsigned int(2) parallelismType;
      */
     avio_w8(pb, hvcc->parallelismType | 0xfc);//cwm , 0|0xfc=0xfc=252
 
     /*
-     * bit(6) reserved = â€˜111111â€™b;
+     * bit(6) reserved = â€?11111â€™b;
      * unsigned int(2) chromaFormat;
      */
     avio_w8(pb, hvcc->chromaFormat | 0xfc);//cwm , 1 | 0xfc = 0xfd=253
 
     /*
-     * bit(5) reserved = â€˜11111â€™b;
+     * bit(5) reserved = â€?1111â€™b;
      * unsigned int(3) bitDepthLumaMinus8;
      */
     avio_w8(pb, hvcc->bitDepthLumaMinus8 | 0xf8);//cwm , 0 | 0xf8 = 0xf8 = 248
 
     /*
-     * bit(5) reserved = â€˜11111â€™b;
+     * bit(5) reserved = â€?1111â€™b;
      * unsigned int(3) bitDepthChromaMinus8;
      */
     avio_w8(pb, hvcc->bitDepthChromaMinus8 | 0xf8);//cwm , 0 | 0xf8 = 0xf8 = 248
@@ -1566,12 +1589,12 @@ int mov_write_hev1_tag(uint16_t width, uint16_t height, uint8_t **out_addr, uint
   Author: ³ÂÎÄÃô
   Others: 20151208
 *************************************************/
-
+#if 0		/* modify by liwei */
 int mov_hvcc_add_nal_unit(uint8_t *nal_buf, uint32_t nal_size, HEVCDecoderConfigurationRecord *hvcc)//cwm ps_array_completeness=0
 {
 	int ret = 0;
 	static int init_hvcc = 0;
-	if(0 ==  init_hvcc)
+	if (0 ==  init_hvcc)
 	{		
     	hvcc_init( hvcc);
 		init_hvcc = 1;
@@ -1585,6 +1608,24 @@ int mov_hvcc_add_nal_unit(uint8_t *nal_buf, uint32_t nal_size, HEVCDecoderConfig
 	
 	return 0;
 }
+#else
+int mov_hvcc_add_nal_unit(uint8_t *nal_buf, uint32_t nal_size, HEVCDecoderConfigurationRecord *hvcc)//cwm ps_array_completeness=0
+{
+	int ret = 0;
+	
+	if (0 ==  hvcc->init)
+    	hvcc_init(hvcc);
+    ret = hvcc_add_nal_unit(nal_buf, nal_size, 0, hvcc);
+    if (ret < 0)
+    {
+		PrintInfo("hvcc_add_nal_unit failed!");
+		return -1;
+	}
+	
+	return 0;
+}
+
+#endif
 
 
 /************************************************* 
@@ -1679,32 +1720,32 @@ int mov_assm_hvcc_data(HEVCDecoderConfigurationRecord *hvcc, HVCCData *hvcc_data
     //cwm, 0x5d
 	hvcc_data->m_hvcC_level_idc_1B = hvcc->general_level_idc;
     /*
-     * bit(4) reserved = â€˜1111â€™b;
+     * bit(4) reserved = â€?111â€™b;
      * unsigned int(12) min_spatial_segmentation_idc;
      */
     //cwm , 0 | 0xf000=0xf000
 	hvcc_data->m_hvcC_min_spatial_segmentation_idc_2B = hvcc->min_spatial_segmentation_idc | 0xf000;
     /*
-     * bit(6) reserved = â€˜111111â€™b;
+     * bit(6) reserved = â€?11111â€™b;
      * unsigned int(2) parallelismType;
      */
     //cwm , 0|0xfc=0xfc=252
 	hvcc_data->m_hvcC_parallelismType_1B = hvcc->parallelismType | 0xfc;
     /*
-     * bit(6) reserved = â€˜111111â€™b;
+     * bit(6) reserved = â€?11111â€™b;
      * unsigned int(2) chromaFormat;
      */
     //cwm , 1 | 0xfc = 0xfd=253
     hvcc_data->m_hvcC_chromaFormat_1B = hvcc->chromaFormat | 0xfc;
 
     /*
-     * bit(5) reserved = â€˜11111â€™b;
+     * bit(5) reserved = â€?1111â€™b;
      * unsigned int(3) bitDepthLumaMinus8;
      */
     //cwm , 0 | 0xf8 = 0xf8 = 248
 	hvcc_data->m_hvcC_bitDepthLumaMinus8_1B = hvcc->bitDepthLumaMinus8 | 0xf8;
     /*
-     * bit(5) reserved = â€˜11111â€™b;
+     * bit(5) reserved = â€?1111â€™b;
      * unsigned int(3) bitDepthChromaMinus8;
      */
     //cwm , 0 | 0xf8 = 0xf8 = 248
