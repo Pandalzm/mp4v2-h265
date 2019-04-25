@@ -145,34 +145,76 @@ void MP4Descriptor::ReadProperties(MP4File& file,
 
 void MP4Descriptor::Write(MP4File& file)
 {
-    // call virtual function to adapt properties before writing
-    Mutate();
-
-    uint32_t numProperties = m_pProperties.Size();
-
-    if (numProperties == 0) {
-        WARNING(numProperties == 0);
-        return;
-    }
-
-    // write tag and length placeholder
-    file.WriteUInt8(m_tag);
-    uint64_t lengthPos = file.GetPosition();
-    file.WriteMpegLength(0);
-    uint64_t startPos = file.GetPosition();
-
-    for (uint32_t i = 0; i < numProperties; i++) {
-        m_pProperties[i]->Write(file);
-    }
-
-    // align with byte boundary (rarely necessary)
-    file.PadWriteBits();
-
-    // go back and write correct length
-    uint64_t endPos = file.GetPosition();
-    file.SetPosition(lengthPos);
-    file.WriteMpegLength(endPos - startPos);
-    file.SetPosition(endPos);
+	if(file.GetRealTimeMode() > MP4_NORMAL)
+	{//aac“Ù∆µ Ù–‘
+		uint64_t lengthPos = 0;
+		uint64_t startPos = 0;
+		uint64_t endPos = 0;
+		
+		// call virtual function to adapt properties before writing
+		Mutate();
+		
+		uint32_t numProperties = m_pProperties.Size();
+		
+		if (numProperties == 0) 
+		{
+			WARNING(numProperties == 0);
+			return;
+		}
+		
+		// write tag and length placeholder
+		file.WriteUInt8(m_tag);
+		lengthPos = file.GetPositonOfBuf();
+		file.WriteMpegLength(0);
+		startPos = file.GetPositonOfBuf();
+		
+		for (uint32_t i = 0; i < numProperties; i++) 
+		{
+			m_pProperties[i]->Write(file);
+		}
+		
+		// align with byte boundary (rarely necessary)
+		file.PadWriteBits();
+		
+		// go back and write correct length
+		endPos = file.GetPositonOfBuf();
+		file.SetPosition(lengthPos);
+		file.WriteMpegLength(endPos - startPos);
+		file.SetPosition(endPos);
+	}
+	else
+	{
+		// call virtual function to adapt properties before writing
+		Mutate();
+		
+		uint32_t numProperties = m_pProperties.Size();
+		
+		if (numProperties == 0) 
+		{
+			WARNING(numProperties == 0);
+			return;
+		}
+		
+		// write tag and length placeholder
+		file.WriteUInt8(m_tag);
+		uint64_t lengthPos = file.GetPosition();
+		file.WriteMpegLength(0);
+		uint64_t startPos = file.GetPosition();
+		
+		for (uint32_t i = 0; i < numProperties; i++) 
+		{
+			m_pProperties[i]->Write(file);
+		}
+		
+		// align with byte boundary (rarely necessary)
+		file.PadWriteBits();
+		
+		// go back and write correct length
+		uint64_t endPos = file.GetPosition();
+		file.SetPosition(lengthPos);
+		file.WriteMpegLength(endPos - startPos);
+		file.SetPosition(endPos);
+	}
 }
 
 void MP4Descriptor::WriteToMemory(MP4File& file,

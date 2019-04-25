@@ -14,6 +14,7 @@
 #define MP4_CREATE_64BIT_TIME 0x02
 /** Bit: do not recompute avg/max bitrates on file close.  @note See http://code.google.com/p/mp4v2/issues/detail?id=66 */
 #define MP4_CLOSE_DO_NOT_COMPUTE_BITRATE 0x01
+#define MP4_CLOSE_DO_NOT_COMPUTE_BITRATE_V2 0x03
 
 /** Enumeration of file modes for custom file provider. */
 typedef enum MP4FileMode_e
@@ -356,6 +357,215 @@ MP4V2_EXPORT
 MP4FileHandle MP4ReadProvider(
     const char*            fileName,
     const MP4FileProvider* fileProvider DEFAULT(NULL) );
+
+/** @} ***********************************************************************/
+
+//////////////////////////////////////////////////
+
+/** Create a new mp4 realtime stream handle with extended options.
+ *
+ *  MP4CreateMM is an extended version of MP4CreateEx().
+ *
+ *  @param fileName reserved. Set to be NULL.
+ *  @param flags bitmask that allows the user to set 64-bit values for
+ *      data or time atoms. Valid bits may be any combination of:
+ *          @li #MP4_CREATE_64BIT_DATA
+ *          @li #MP4_CREATE_64BIT_TIME
+ *  @param add_ftyp if true an <b>ftyp</b> atom is automatically created.
+ *  @param add_iods if true an <b>iods</b> atom is automatically created.
+ *  @param majorBrand <b>ftyp</b> brand identifier.
+ *  @param minorVersion <b>ftyp</b> informative integer for the minor version
+ *      of the major brand.
+ *  @param compatibleBrands <b>ftyp</b> list of compatible brands.
+ *  @param compatibleBrandsCount is the count of items specified in
+ *      compatibleBrands.
+ *  @param mulMdat it is multy mdat status if it was set to be true.
+ *  @param mdatSize the size of mdat.
+ *
+ *  @return On success a handle of the newly created file for use in
+ *      subsequent calls to the library.
+ *      On error, #MP4_INVALID_FILE_HANDLE.
+ */
+MP4V2_EXPORT
+MP4FileHandle MP4CreateMM(
+	const char* fileName,
+	uint32_t	flags DEFAULT(0),
+	int 		add_ftyp DEFAULT(1),
+	int 		add_iods DEFAULT(1),
+	char*		majorBrand DEFAULT(0),
+	uint32_t	minorVersion DEFAULT(0),
+	char**		compatibleBrands DEFAULT(0),
+	uint32_t	compatibleBrandsCount DEFAULT(0),
+	bool		mulMdat DEFAULT(true),
+	uint64_t	mdatSize DEFAULT(MP4_MDAT_SIZE));
+
+ /** Create a new mp4 realtime stream handle with extended options.
+ *
+ *  MP4CreateRT is an extended version of MP4CreateEx().
+ *
+ *  @param fileName reserved. Set to be NULL.
+ *  @param flags bitmask that allows the user to set 64-bit values for
+ *      data or time atoms. Valid bits may be any combination of:
+ *          @li #MP4_CREATE_64BIT_DATA
+ *          @li #MP4_CREATE_64BIT_TIME
+ *  @param add_ftyp if true an <b>ftyp</b> atom is automatically created.
+ *  @param add_iods if true an <b>iods</b> atom is automatically created.
+ *  @param majorBrand <b>ftyp</b> brand identifier.
+ *  @param minorVersion <b>ftyp</b> informative integer for the minor version
+ *      of the major brand.
+ *  @param compatibleBrands <b>ftyp</b> list of compatible brands.
+ *  @param compatibleBrandsCount is the count of items specified in
+ *      compatibleBrands.
+ *  @param realimeMode create mode.
+ *      MP4_RT it is basic realttime mode
+ *      MP4_ADD_INFO in this mode, will fill user-define data.
+ *      MP4_RT_MOOV in this mode, will creat moov.
+ *  @param mdatSize the size of mdat.
+ *  @param encryptionFlag it was encrypted if set to be ture.
+ *  @realimeData out parameter, the buffer of contain realtime stream
+ *  @realimeDataSize out parameter, realtime stream buffer size
+ *
+ *  @return On success a handle of the newly created file for use in
+ *      subsequent calls to the library.
+ *      On error, #MP4_INVALID_FILE_HANDLE.
+ */
+MP4V2_EXPORT
+MP4FileHandle MP4CreateRT(
+	const char* fileName,
+	uint32_t	flags DEFAULT(0),
+	int 		add_ftyp DEFAULT(1),
+	int 		add_iods DEFAULT(1),
+	char*		majorBrand DEFAULT(0),
+	uint32_t	minorVersion DEFAULT(0),
+	char**		compatibleBrands DEFAULT(0),
+	uint32_t	compatibleBrandsCount DEFAULT(0),
+    uint32_t	realimeMode DEFAULT(1),
+	uint64_t	mdatSize DEFAULT(MP4_MDAT_SIZE),
+    bool        encryptionFlag DEFAULT(false),
+    uint8_t**	realimeData DEFAULT(NULL),
+    uint64_t*	realimeDataSize DEFAULT(NULL) );
+
+MP4V2_EXPORT
+MP4FileHandle MP4CreateRTV2(
+	const char* fileName,
+	uint32_t	flags DEFAULT(0),
+	int 		add_ftyp DEFAULT(1),
+	int 		add_iods DEFAULT(1),
+	char*		majorBrand DEFAULT(0),
+	uint32_t	minorVersion DEFAULT(0),
+	char**		compatibleBrands DEFAULT(0),
+	uint32_t	compatibleBrandsCount DEFAULT(0),
+    uint32_t	realimeMode DEFAULT(1),
+	uint64_t	mdatSize DEFAULT(MP4_MDAT_SIZE),
+    bool        encryptionFlag DEFAULT(false),
+    uint8_t*    callbackFun DEFAULT(NULL),
+    uint8_t**	realimeData DEFAULT(NULL),
+    uint64_t*	realimeDataSize DEFAULT(NULL)  );
+
+/** Close an mp4 realtime stream handle.
+ *  MP4Close closes a previously opened mp4 realtime stream handle. If the realtime stream handle was opened
+ *  writable with MP4CreateRT(), then MP4CloseRT() will write
+ *  out all pending information to buffer.
+ *
+ *  @param hFile handle of realtime stream handle to close.
+ *  @param flags bitmask that allows the user to set extra options for the
+ *       close commands.  Valid options include:
+ *          @li #MP4_CLOSE_DO_NOT_COMPUTE_BITRATE
+ *  @realimeData out parameter, the buffer of contain realtime stream
+ *  @realimeDataSize out parameter, realtime stream buffer size
+ */
+MP4V2_EXPORT
+void MP4CloseRT(
+    MP4FileHandle hFile,
+    uint32_t    flags DEFAULT(0),
+    uint8_t**	realimeData DEFAULT(NULL),
+    uint64_t*	realimeDataSize DEFAULT(NULL) );
+
+/** Close an mp4 realtime stream handle.
+ *  MP4Close closes a previously opened mp4 realtime stream handle. 
+ *
+ *  @param hFile handle of file for operation.
+ *  @param selfType data type.
+ *       VMFT, virtual frame
+ *       AVST, audio and vedio infomations,contain one sameple size and during
+ *       VDTT, vedio track infomations,contain create infomations
+ *       VDTT, audio track infomations,contain create infomations
+ *  @memSize member size of user-define data
+ *  @unitBuf user-define data
+ *  @uinitBufSize user-define data size
+ *
+ *  @return <b>true</b> on success, <b>false</b> on failure.
+ */
+MP4V2_EXPORT
+bool MP4WriteBaseUnit(MP4FileHandle hFile, MP4SelfType selfType, uint32_t memSize, uint8_t* unitBuf, uint32_t uinitBufSize);
+
+/** Set inner create time and modified time.
+ *  keep same md5 value for the same source file. 
+ *
+ *  @param createTime second time(base on 2082844800) 
+ *
+ */
+MP4V2_EXPORT
+void MP4SetAllCreateTime(MP4Timestamp createTime);
+
+/** Get mp4 mp4 file tail size.
+ *  . 
+ *
+ *  @param hFile handle of file for operation.
+ *
+ *  @return file tail size
+ */
+MP4V2_EXPORT
+int64_t MP4GetFileTailSize(MP4FileHandle hFile);
+
+
+/** Used for repair file to fill lost data.
+ *  . 
+ *
+ *  @param hFile handle of file for operation.
+ *  @unitBuf not used, set to NULL
+ *  @uinitBufSize aligned data size
+ *
+ *  @return file tail size
+ */
+MP4V2_EXPORT
+bool MP4WriteAlignData(MP4FileHandle hFile, uint8_t* unitBuf, uint64_t uinitBufSize, uint32_t uiVfSize);
+
+
+/** Set realtime stream callback function.
+ *  . 
+ *
+ *  @param hFile handle of file for operation.
+ *  @callbackFun callback function :
+ *   typedef void (*RealTimeCallbackFun)(MP4FileHandle hMP4Hadle, int32_t iErrorCode, uint8_t* pRTStream, uint64_t ui64RTStreamSize)
+ *
+ *  @return true is successfully.
+ */
+MP4V2_EXPORT
+bool MP4SetRealtimeCallbackFun(MP4FileHandle hFile, void* callbackFun);
+
+/** Set seldf-defined data mode.
+ *  . 
+ *
+ *  @param hFile handle of file for operation.
+ *  @uiMode set to MP4_COMPACT_MODE if use compact mode.  
+ *
+ *  @return true is successfully.
+ */
+MP4V2_EXPORT
+bool MP4SetSelfDataMode(MP4FileHandle hFile, uint32_t uiMode);
+
+/** Align the damage tail.
+ *  . 
+ *
+ *  @param hFile handle of file for operation.
+ *  @eType set to MP4_MOOV or MP4_FREE base on the  truth.   
+ *  @uiLength the  truth length.  
+ *
+ *  @return true is successfully.
+ */
+MP4V2_EXPORT
+bool MP4AlignTail(MP4FileHandle hFile, MP4BoxType eType, uint32_t uiLength);
 
 /** @} ***********************************************************************/
 

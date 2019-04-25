@@ -32,7 +32,7 @@
  */
 
 #include "src/impl.h"
-
+#include "libavutil/log.h"
 namespace mp4v2 { namespace impl {
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -113,6 +113,15 @@ MP4Atom* MP4Atom::ReadAtom(MP4File& file, MP4Atom* pParentAtom)
 {
     uint8_t hdrSize = 8;
     uint8_t extendedType[16];
+
+	if((file.m_RecordPos == 2) && (file.m_MoovPos > 0))
+	{/*兼容新老模式*/
+		file.SetPosition( file.m_MoovPos );
+	}
+	if(file.m_RecordPos<3)
+	{
+		file.m_RecordPos++;
+	}
 
     uint64_t pos = file.GetPosition();
 
@@ -454,6 +463,7 @@ void MP4Atom::ReadChildAtoms()
 
     // if mandatory child atom doesn't exist, print warning
     uint32_t numAtomInfo = m_pChildAtomInfos.Size();
+	PrintInfo("numAtomInfo=%d", numAtomInfo);
     for (uint32_t i = 0; i < numAtomInfo; i++) {
         if (m_pChildAtomInfos[i]->m_mandatory
                 && m_pChildAtomInfos[i]->m_count == 0) {
@@ -494,7 +504,7 @@ void MP4Atom::Rewrite()
         // This atom hasn't been written yet...
         return;
     }
-
+    log.infof("!!!Warnning: If the function MP4Atom::Rewrite is called,need to deal specially.\n");
     uint64_t fPos = m_File.GetPosition();
     m_File.SetPosition(GetStart());
     Write();
@@ -503,45 +513,122 @@ void MP4Atom::Rewrite()
 
 void MP4Atom::BeginWrite(bool use64)
 {
-    m_start = m_File.GetPosition();
-    //use64 = m_File.Use64Bits();
-    if (use64) {
-        m_File.WriteUInt32(1);
-    } else {
-        m_File.WriteUInt32(0);
-    }
-    m_File.WriteBytes((uint8_t*)&m_type[0], 4);
-    if (use64) {
-        m_File.WriteUInt64(0);
-    }
-    if (ATOMID(m_type) == ATOMID("uuid")) {
-        m_File.WriteBytes(m_extendedType, sizeof(m_extendedType));
-    }
+	if(m_File.GetRealTimeMode() > MP4_NORMAL)
+	{
+	    //m_start = m_File.GetPosition();
+	    m_start = m_File.GetPositonOfBuf();
+	    //use64 = m_File.Use64Bits();
+	    if (use64) 
+		{
+	        m_File.WriteUInt32(1);
+	    } 
+		else 
+		{
+	        m_File.WriteUInt32(0);
+	    }
+		
+	    m_File.WriteBytes((uint8_t*)&m_type[0], 4);
+		
+	    if (use64) 
+		{
+	        m_File.WriteUInt64(0);
+	    }
+		
+	    if (ATOMID(m_type) == ATOMID("uuid")) 
+		{
+	        m_File.WriteBytes(m_extendedType, sizeof(m_extendedType));
+	    }
+		log.infof("*tpye*-> %s.\n", &m_type[0]);
+	}
+	else
+	{
+	    m_start = m_File.GetPosition();
+	    //use64 = m_File.Use64Bits();
+	    if (use64) 
+		{
+	        m_File.WriteUInt32(1);
+	    } 
+		else 
+		{
+	        m_File.WriteUInt32(0);
+	    }
+		
+	    m_File.WriteBytes((uint8_t*)&m_type[0], 4);
+		
+	    if (use64) 
+		{
+	        m_File.WriteUInt64(0);
+	    }
+		
+	    if (ATOMID(m_type) == ATOMID("uuid")) 
+		{
+	        m_File.WriteBytes(m_extendedType, sizeof(m_extendedType));
+	    }
+	}
 }
 
 void MP4Atom::FinishWrite(bool use64)
 {
-    m_end = m_File.GetPosition();
-    m_size = (m_end - m_start);
+	if(m_File.GetRealTimeMode() > MP4_NORMAL)
+	{
+		//m_end = m_File.GetPosition();
+	    //m_size = (m_end - m_start);
+		m_end = m_File.GetPositonOfBuf();
+	    m_size = (m_end - m_start);
 
-    log.verbose1f("end: type %s %" PRIu64 " %" PRIu64 " size %" PRIu64,
-                       m_type,m_start, m_end, m_size);
-    //use64 = m_File.Use64Bits();
-    if (use64) {
-        m_File.SetPosition(m_start + 8);
-        m_File.WriteUInt64(m_size);
-    } else {
-        ASSERT(m_size <= (uint64_t)0xFFFFFFFF);
-        m_File.SetPosition(m_start);
-        m_File.WriteUInt32(m_size);
-    }
-    m_File.SetPosition(m_end);
+	    log.verbose1f("end: type %s %" PRIu64 " %" PRIu64 " size %" PRIu64,
+	                       m_type,m_start, m_end, m_size);
+	    //use64 = m_File.Use64Bits();
+	    if (use64) 
+		{
+	        m_File.SetPosition(m_start + 8);
+	        m_File.WriteUInt64(m_size);
+	    } 
+		else 
+		{
+	        ASSERT(m_size <= (uint64_t)0xFFFFFFFF);
+	        m_File.SetPosition(m_start);
+	        m_File.WriteUInt32(m_size);
+	    }
+	    m_File.SetPosition(m_end);
 
-    // adjust size to just reflect data portion of atom
-    m_size -= (use64 ? 16 : 8);
-    if (ATOMID(m_type) == ATOMID("uuid")) {
-        m_size -= sizeof(m_extendedType);
-    }
+	    // adjust size to just reflect data portion of atom
+	    m_size -= (use64 ? 16 : 8);
+	    if (ATOMID(m_type) == ATOMID("uuid")) 
+		{
+	        m_size -= sizeof(m_extendedType);
+	    }
+	}
+	else
+	{
+	    m_end = m_File.GetPosition();
+	    m_size = (m_end - m_start);
+
+	    log.verbose1f("end: type %s %" PRIu64 " %" PRIu64 " size %" PRIu64,
+	                       m_type,m_start, m_end, m_size);
+	    //use64 = m_File.Use64Bits();
+	    if (use64) 
+		{
+	        m_File.SetPosition(m_start + 8);
+	        m_File.WriteUInt64(m_size);
+	    } 
+		else 
+		{
+	        ASSERT(m_size <= (uint64_t)0xFFFFFFFF);
+	        m_File.SetPosition(m_start);
+	        m_File.WriteUInt32(m_size);
+	    }
+	    m_File.SetPosition(m_end);
+
+	    // adjust size to just reflect data portion of atom
+	    m_size -= (use64 ? 16 : 8);
+	    if (ATOMID(m_type) == ATOMID("uuid")) 
+		{
+	        m_size -= sizeof(m_extendedType);
+	    }
+	}
+
+	log.infof("MP4Atom::FinishWrite end.\n");
 }
 
 void MP4Atom::WriteProperties(uint32_t startIndex, uint32_t count)
@@ -884,6 +971,10 @@ MP4Atom::factory( MP4File &file, MP4Atom* parent, const char* type )
                 return new MP4VideoAtom( file, type );
             if( ATOMID(type) == ATOMID("href") )
                 return new MP4HrefAtom(file);
+            if( ATOMID(type) == ATOMID("hev1") )
+                return new MP4Hev1Atom(file);
+            if( ATOMID(type) == ATOMID("hvcC") )
+                return new MP4HvcCAtom(file);
             break;
 
         case 'i':

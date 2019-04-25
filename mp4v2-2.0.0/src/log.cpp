@@ -27,12 +27,112 @@
 
 namespace mp4v2 { namespace impl {
 
-MP4LogCallback Log::_cb_func = NULL;
+using namespace mp4v2::platform::time;
+
+static void CtrlSize(FILE *_pFile)
+{
+	struct stat buf;
+	FILE *pFile = _pFile;
+	if(pFile == NULL)
+	{
+		return;
+	}
+	
+	int ret = stat("log/mp4v2.log", &buf);
+	if(ret == 0)
+	{
+		if(buf.st_size >= 512*1024)
+		{
+			//Çå¿ÕÎÄ¼þ
+			#if defined( _WIN32 ) || defined( __MINGW32__ )
+			if (0 == _chsize_s(fileno(pFile), _filelengthi64(fileno(pFile))))
+			#else
+			if(0 == ftruncate(fileno(pFile), 0))
+			#endif
+			{
+				fseek(pFile, 0, SEEK_SET);
+				fflush(pFile);
+			}
+			else
+			{
+				perror("ftruncate error!");
+			}
+		}
+	}
+}
+
+static void DefaultCallbackFun(MP4LogLevel verbosity,const char* format,va_list ap)
+{
+	static FILE* pFile = NULL;
+	static bool CheckFlag = true;
+	static bool CheckFlag2 = false;
+	static bool CheckFlag3 = false;
+	time_t now;
+	struct tm *ptm_now;
+	
+	if(format == NULL) 
+	{
+		return;
+	}
+	
+	if(0 == access("MP4V2LOG", 0))
+	{
+		CheckFlag2 = true;
+	}
+	else
+	{
+		CheckFlag2 = false;
+	}
+	
+	if(CheckFlag)
+	{
+		if(getLocalTimeSeconds()<1438358400)//1438358400
+		{
+			CheckFlag3 = true;
+		}
+		CheckFlag = false;
+	}
+		
+	if((!CheckFlag2) && (!CheckFlag3))
+	{
+		if(pFile != NULL)
+		{
+			fclose(pFile);
+			pFile = NULL;
+		}
+		return;
+	}
+	
+	if(pFile == NULL)
+	{
+		pFile = fopen("log/mp4v2.log", "a+");
+		if(NULL == pFile)
+		{
+			return;
+		}
+	}
+	CtrlSize(pFile);
+	
+	now = getLocalTimeSeconds();
+	ptm_now = localtime(&now);
+	fprintf(pFile,"[%04d/%02d/%02d %02d:%02d:%02d]",
+		ptm_now->tm_year+1900,
+		ptm_now->tm_mon+1,
+		ptm_now->tm_mday,
+		(ptm_now->tm_hour)%24,
+		ptm_now->tm_min,
+		ptm_now->tm_sec);
+    ::vfprintf(pFile,format,ap);
+	fprintf(pFile,"\n");
+	fflush(pFile);	
+}
+
+MP4LogCallback Log::_cb_func = DefaultCallbackFun;
 
 // There's no mechanism to set the log level at runtime at
 // the moment so construct this so it only logs important
 // stuff.
-Log log(MP4_LOG_WARNING);
+Log log(MP4_LOG_ERROR);
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -362,7 +462,7 @@ Log::vprintf( MP4LogLevel       verbosity_,
     if (Log::_cb_func)
     {
         Log::_cb_func(verbosity_,format,ap);
-        return;
+        //return;
     }
 
     // No callback set so log to standard out.  

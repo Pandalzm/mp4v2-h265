@@ -33,7 +33,8 @@ namespace {
     public:
         StaticData()
         {
-            supportedCodings.insert( "avc1" );
+            supportedCodings.insert( "avc1" );			
+            supportedCodings.insert( "hev1" );//cwm
             supportedCodings.insert( "mp4v" );
         }
 

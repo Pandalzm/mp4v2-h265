@@ -577,5 +577,53 @@ void MP4File::WriteMpegLength(uint32_t value, bool compact)
 
 ///////////////////////////////////////////////////////////////////////////////
 
+//////////////////////////////////////////////////
+
+///////////////////////////////////////////////////////////////////////////////
+
+uint64_t MP4File::GetPositonOfBuf( File* file )
+{//获得缓冲buffer的当前位置
+    if( m_memoryBuffer )
+    {
+        return m_memoryBufferPosition;
+    }
+
+    if( !file )
+    {
+        file = m_file;
+	}
+
+    ASSERT( file );
+	
+    return file->GetPositonOfBuf();
+}
+
+uint64_t MP4File::GetTailPositonOfBuf( File* file )
+{//获得总数据尾
+    if( m_memoryBuffer )
+    {
+        return m_memoryBufferPosition;
+	}
+
+    if( !file )
+    {
+        file = m_file;
+	}
+
+    ASSERT( file );
+	
+    return file->GetTailPositonOfBuf();
+}
+
+void MP4File::RecordAllBufNonius( void )
+{//获得总数据当前位置
+	m_file->RecordAllBufNonius();
+}
+
+uint64_t MP4File::GetLastAllBufNonius( void )
+{
+	return m_file->GetLastAllBufNonius();
+}
+
 }
 } // namespace mp4v2::impl

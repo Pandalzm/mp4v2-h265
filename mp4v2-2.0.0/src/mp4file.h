@@ -33,6 +33,8 @@
 #ifndef MP4V2_IMPL_MP4FILE_H
 #define MP4V2_IMPL_MP4FILE_H
 
+#include "libavcodec/hevc.h"
+
 namespace mp4v2 { namespace impl {
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -44,6 +46,68 @@ class MP4StringProperty;
 class MP4BytesProperty;
 class MP4Descriptor;
 class MP4DescriptorProperty;
+
+typedef void (*InnerRealTimeCallbackFun)(void*, int32_t, uint8_t*, uint64_t);
+
+typedef struct
+{
+	unsigned int  m_uiSize;    /* 整个信息大小 */
+	unsigned char m_ucType[4]; /* 类型 VIRTUAL_FRAME_TYPE  SAMPLE_OFFSET_TYPE SAMPLE_TS_TYPE AV_INFO_TYPE*/
+	unsigned int  m_uiMemSize; /*单元信息的大小*/
+	unsigned char m_pUserData[0];  /* 单元信息数据*/
+}BUnit;
+
+
+class CFDNode
+{
+public:
+	CFDNode();
+	CFDNode(MP4SelfType selfType, uint32_t memSize, uint8_t* unitBuf, uint32_t uinitBufSize);
+	~CFDNode();
+	void WriteUint32(uint8_t* uiBuf, uint32_t uiValue);
+	
+public:
+	BUnit* m_pData;
+	CFDNode* m_pNext;
+};
+
+class MP4SelfBufList
+{
+public:
+	MP4SelfBufList();
+	~MP4SelfBufList();
+	bool PushNode(CFDNode* _pNode);
+	CFDNode* PopNode();
+	void ResetData(uint32_t uiValue=0);
+
+public:
+	CFDNode* m_pHead;
+	CFDNode* m_pTail;
+	uint32_t m_iCount;	
+	uint64_t m_iListSize;
+};
+
+
+class MP4SelfBuf
+{
+public:
+	MP4SelfBuf();
+	~MP4SelfBuf();
+	void WriteUint32(uint8_t* uiBuf, uint32_t uiValue);
+	bool InitData(uint32_t uiSize, uint8_t* pType, uint32_t uiMemSize);
+	bool AddData(uint8_t* uiBuf, uint32_t uiSize);
+	uint8_t* GetPacketData();
+	void ResetData();
+
+public:
+	uint32_t m_uiSize;    /* struct size */
+	uint8_t  m_ucType[4]; /* struct type */
+	uint32_t m_uiMemSize; /* member size */
+	uint8_t* m_cBuf;      /* data */
+	
+	uint32_t m_uBufSize;
+	uint32_t m_uBufTotalSize;
+};
 
 class MP4File
 {
@@ -361,6 +425,37 @@ public:
     void AddH264PictureParameterSet(MP4TrackId trackId,
                                     const uint8_t *pPicture,
                                     uint16_t pictureLen);
+	
+MP4TrackId ModH265VideoTrack(MP4TrackId trackId);
+
+MP4TrackId AddH265VideoTrack(
+	uint32_t timeScale,
+	MP4Duration sampleDuration,
+	uint16_t width,
+	uint16_t height,
+	uint8_t AVCProfileIndication,
+	uint8_t profile_compat,
+	uint8_t AVCLevelIndication,
+	uint8_t sampleLenFieldSizeMinusOne);
+
+MP4TrackId AddEncH265VideoTrack(
+	uint32_t timeScale,
+	MP4Duration sampleDuration,
+	uint16_t width,
+	uint16_t height,
+	MP4Atom *srcAtom,
+	mp4v2_ismacrypParams *icPp);
+
+void AddH265VideoParameterSet (MP4TrackId trackId,
+	   							const uint8_t *pVideo,
+	   							uint16_t videoLen);
+void AddH265SequenceParameterSet(MP4TrackId trackId,
+								 const uint8_t *pSequence,
+								 uint16_t sequenceLen);
+void AddH265PictureParameterSet(MP4TrackId trackId,
+								const uint8_t *pPicture,
+								uint16_t pictureLen);
+
     MP4TrackId AddHintTrack(MP4TrackId refTrackId);
 
     MP4TrackId AddTextTrack(MP4TrackId refTrackId);
@@ -551,6 +646,13 @@ public:
     void GetTrackVideoMetadata(MP4TrackId trackId,
                                uint8_t** ppConfig, uint32_t* pConfigSize);
     void GetTrackH264SeqPictHeaders(MP4TrackId trackId,
+                                    uint8_t ***pSeqHeader,
+                                    uint32_t **pSeqHeaderSize,
+                                    uint8_t ***pPictHeader,
+                                    uint32_t **pPictHeaderSize);
+    void GetTrackH265SeqPictHeaders(MP4TrackId trackId,
+									uint8_t ***pppVidHeader,
+									uint32_t **ppVidHeaderSize,
                                     uint8_t ***pSeqHeader,
                                     uint32_t **pSeqHeaderSize,
                                     uint8_t ***pPictHeader,
@@ -982,6 +1084,133 @@ protected:
  private:
     MP4File ( const MP4File &src );
     MP4File &operator= ( const MP4File &src );
+
+	//////////////////////////////////////////////////
+public:
+	MP4File( uint32_t realimeMode );
+	void SetMulMdatMode( void );
+	bool IsMulMdatMode( void );
+	void SetMdatSize( uint64_t );
+	uint64_t GetMdatSize( void );
+	bool StartNewMdat( void );
+	bool EndOldMdat( void );
+	uint64_t GetActualMdatSize( void );
+	bool IsThisTimes( void );
+	void ResetThisTimes( void );
+	uint64_t GetActualJudgeMdatSize( void );
+	void AddActualJudgeMdatSize( uint64_t );
+	void ResetActualJudgeMdatSize( void );
+	MP4Atom* GetRootAtom();
+
+	void SetRealTimeMode(uint32_t);
+	uint32_t GetRealTimeMode();
+	bool GetRealTimeData( uint8_t** pui8Data, uint64_t* _pui64DataSize);
+	
+	void SetRealTimeModeBeforeOpen(uint32_t);
+	uint32_t GetRealTimeModeBeforeOpen();
+	uint64_t GetPositonOfBuf( File* file = NULL );
+	uint64_t GetTailPositonOfBuf( File* file = NULL );
+
+	bool WriteBaseUnit(MP4SelfType selfType, uint32_t memSize, uint8_t* unitBuf, uint32_t uinitBufSize);
+	static void SetAllCreateTime(MP4Timestamp createTime);
+	static MP4Timestamp GetAllCreateTime( void );
+	void SetEncryptionFlag(bool encryptionFlag = true);
+	
+	void RecordAllBufNonius( void );
+	uint64_t GetLastAllBufNonius( void );
+
+	bool WriteSelfData();
+	bool WriteSelfData(int iStateFlag, bool* bFinish);
+	bool WriteSelfData(int iStateFlag, bool* bFinish, uint8_t* ui8Others);
+	int64_t GetFileTailSize();
+	
+	void WriteUint32(uint8_t* uiBuf, uint32_t uiValue);
+	bool WriteAlignData(uint8_t* unitBuf, uint64_t uinitBufSize, uint32_t uiVfSize);
+	void PackageSelfData(uint32_t uiFlag, uint8_t* pTmpBuf, uint8_t* pTmp24Buf, CFDNode* pNode, uint8_t* ucType, uint32_t* uiPos, 
+						uint32_t* iMemSize, bool* bIsAddFlag, bool* bIsFinishAddFlag);
+	void RecordSelfData(uint8_t* pData, uint8_t* ucType);
+	bool SetRealtimeCallbackFun(void* callbackFun);
+	bool SetSelfDataMode(uint32_t uiMode);
+	bool AlignTail(MP4BoxType eType, uint32_t uiLength);
+	
+private:
+	bool m_mulMdatMode;
+	uint64_t m_ui64CurMdatSize;
+	uint64_t m_ui64ActualMdatSize;
+	bool m_IsThisTimes;
+	uint64_t m_ui64ActualJudgeMdatSize;
+	uint32_t m_realtimeModeBeforeOpen;
+
+	static MP4Timestamp m_createTime;
+
+public:
+	bool m_encryptionFlag;
+	
+	uint8_t* m_mdatBuf;
+	uint64_t m_mdatBufSize;
+	
+	MP4SelfBuf m_virtualFrame;
+	MP4SelfBuf m_avSamepleInfo;
+	MP4SelfBuf m_videoTrackInfo;
+	MP4SelfBuf m_audioTrackInfo;
+
+	MP4SelfBufList m_UserDefineData;
+	bool m_bWriteVedioTrackFlag;
+
+	bool m_bAddFlag;
+	
+	uint64_t m_ui64FileTailSize;
+	
+	bool m_bVirtualFrameFlag;
+	bool m_bNormalVirtualFrameFlag;
+	uint64_t m_NormalVirtualFramePos;
+	uint32_t m_VirtualFrameFillSize;
+	uint64_t m_VirtualFramePos;
+
+	uint8_t* m_SelfBuf;
+	uint64_t m_SelfBufSize;
+	uint64_t m_AdjournPos;
+	uint32_t m_ExeFreeTimes;
+	uint64_t m_MoovPos;
+	uint32_t m_RecordPos;
+	
+	uint8_t* m_pFillData;
+	
+	uint32_t m_Encryption;
+	uint32_t m_AudioEncode;
+	
+	uint8_t* m_pVirtualMoovData;
+	uint32_t m_uiSizeOfVirtualMoovData;
+	InnerRealTimeCallbackFun m_RealtimeStreamFun;
+	bool     m_IsCloseFlag;
+	uint32_t m_SelfDataMode;
+	bool     m_IsHead;
+	uint64_t m_ui64StartTime;
+	uint64_t m_ui64EndTime;
+	
+	uint64_t m_ui64FrameCount;
+	char m_cAudioType[5];
+	
+	int32_t m_ui32DamgeBoxSize;
+	MP4BoxType m_eBoxType;
+
+public:
+	static uint32_t m_ui32MallocCount;
+	static void* DbgInfoFun(void* param);
+
+public:	
+	uint8_t* 	m_pPsData;
+	uint16_t	m_ui32PsDataSize;
+	
+	uint16_t	m_ui32width;
+	uint16_t	m_ui32height;
+	int8_t		m_statusPs;
+	
+	uint8_t		m_vpsCount;
+	uint8_t		m_spsCount;
+	uint8_t		m_ppsCount;
+	HEVCDecoderConfigurationRecord m_hvccDecoder;
+	HVCCData	m_hvccData;
 };
 
 ///////////////////////////////////////////////////////////////////////////////

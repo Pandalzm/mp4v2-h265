@@ -60,6 +60,50 @@ typedef uint32_t (*encryptFunc_t)( uint32_t, uint32_t, uint8_t*, uint32_t*, uint
 #define MP4_IS_VALID_DURATION(x)    ((x) != MP4_INVALID_DURATION)
 #define MP4_IS_VALID_EDIT_ID(x)     ((x) != MP4_INVALID_EDIT_ID)
 
+/* define */
+#define MP4_MDAT_SIZE	(1024*1024*4)
+#define MP4_NORMAL		0
+#define MP4_RT			1
+#define MP4_ADD_INFO	2
+#define MP4_RT_MOOV		3
+
+#define VIRTUAL_FRAME_TYPE		"vmft"     /**< virtual frame. */
+#define AV_SAMPLE_INFO_TYPE		"avst"     /**< audio and vedio infomations. */
+#define VIDEO_TRACK_INFO_TYPE	"vdtt"     /**< vedio track infomations. */
+#define AUDIO_TRACK_INFO_TYPE	"adtt"     /**< audio track infomations. */
+#define VIDEO_SAMPLE_INFO_TYPE	"vdst"     /**< audio track infomations. */
+#define AUDIO_SAMPLE_INFO_TYPE	"adst"     /**< audio track infomations. */
+#define AUDIO_ENCODE_TYPE		"adet"     /**< audio encode type. contian member is 4 bytes*/
+#define ENCRYPTION_TYPE			"enct"     /**< encryption type flag. contian member is 4 bytes*/
+#define ADJOURN					"ajon"     /**< adjourn. contian member is 16 bytes*/
+#define SELF_DEFINE_FLAG		"12345678" /**< user-define flag. */
+#define SELF_VERSION            1          /**< user-define version,4bytes. */
+#define MP4_INVALID_TAIL		(-1)
+
+#define MP4_TAIL_FLAG			10
+#define MP4_COMPACT_MODE		1
+
+
+typedef enum {
+    VMFT = 0,
+	AVST = 1,
+	VDTT = 2,
+	ADTT = 3,
+	VDST = 4,
+	ADST = 5,
+	ADET = 6,
+	ENCT = 7,
+	AJON = 8
+} MP4SelfType;
+
+typedef enum {
+    MP4_DEFAULT = 0,
+    MP4_MOOV = 1,
+    MP4_FREE = 2
+} MP4BoxType;
+
+typedef void (*RealTimeCallbackFun)(MP4FileHandle hMP4Hadle, int32_t iErrorCode, uint8_t* pRTStream, uint64_t ui64RTStreamSize);
+
 /*
  * MP4 Known track type names - e.g. MP4GetNumberOfTracks(type)
  *

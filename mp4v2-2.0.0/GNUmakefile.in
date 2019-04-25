@@ -117,6 +117,7 @@ am__installdirs = "$(DESTDIR)$(libdir)" "$(DESTDIR)$(bindir)" \
 LTLIBRARIES = $(lib_LTLIBRARIES)
 libmp4v2_la_LIBADD =
 am__libmp4v2_la_SOURCES_DIST = src/3gp.cpp src/atom_ac3.cpp \
+    src/hevc.cpp                    	 \
 	src/atom_amr.cpp src/atom_avc1.cpp src/atom_avcC.cpp \
 	src/atom_chpl.cpp src/atom_colr.cpp src/atom_d263.cpp \
 	src/atom_dac3.cpp src/atom_damr.cpp src/atom_dref.cpp \
@@ -159,6 +160,7 @@ am__libmp4v2_la_SOURCES_DIST = src/3gp.cpp src/atom_ac3.cpp \
 	src/qtff/coding.h src/qtff/impl.h src/qtff/qtff.h \
 	libplatform/endian.h libplatform/impl.h \
 	libplatform/io/File.cpp libplatform/io/File.h \
+	libplatform/io/File_realtimestream.cpp \
 	libplatform/io/FileSystem.cpp libplatform/io/FileSystem.h \
 	libplatform/number/random.h libplatform/platform.h \
 	libplatform/platform_base.h libplatform/platform_posix.h \
@@ -195,6 +197,7 @@ am__dirstamp = $(am__leading_dot)dirstamp
 @ADD_UTIL_TRUE@	libutil/TrackModifier.lo libutil/Utility.lo \
 @ADD_UTIL_TRUE@	libutil/crc.lo libutil/other.lo
 am_libmp4v2_la_OBJECTS = src/3gp.lo src/atom_ac3.lo src/atom_amr.lo \
+    src/hevc.lo                    	 \
 	src/atom_avc1.lo src/atom_avcC.lo src/atom_chpl.lo \
 	src/atom_colr.lo src/atom_d263.lo src/atom_dac3.lo \
 	src/atom_damr.lo src/atom_dref.lo src/atom_elst.lo \
@@ -223,10 +226,10 @@ am_libmp4v2_la_OBJECTS = src/3gp.lo src/atom_ac3.lo src/atom_amr.lo \
 	src/itmf/generic.lo src/itmf/type.lo \
 	src/qtff/ColorParameterBox.lo \
 	src/qtff/PictureAspectRatioBox.lo src/qtff/coding.lo \
-	libplatform/io/File.lo libplatform/io/FileSystem.lo \
-	libplatform/prog/option.lo libplatform/sys/error.lo \
-	libplatform/time/time.lo $(am__objects_1) $(am__objects_2) \
-	$(am__objects_3)
+	libplatform/io/File.lo libplatform/io/File_realtimestream.lo \
+	libplatform/io/FileSystem.lo libplatform/prog/option.lo \
+	libplatform/sys/error.lo libplatform/time/time.lo \
+	$(am__objects_1) $(am__objects_2) $(am__objects_3)
 libmp4v2_la_OBJECTS = $(am_libmp4v2_la_OBJECTS)
 libmp4v2_la_LINK = $(LIBTOOL) --tag=CXX $(AM_LIBTOOLFLAGS) \
 	$(LIBTOOLFLAGS) --mode=link $(CXXLD) $(AM_CXXFLAGS) \
@@ -473,6 +476,7 @@ libmp4v2_la_LDFLAGS = \
     -version-number $(PROJECT_version_major):$(PROJECT_version_minor):$(PROJECT_version_point) $(X_libmp4v2_la_LDFLAGS)
 
 libmp4v2_la_SOURCES = src/3gp.cpp src/atom_ac3.cpp src/atom_amr.cpp \
+    src/hevc.cpp                    	 \
 	src/atom_avc1.cpp src/atom_avcC.cpp src/atom_chpl.cpp \
 	src/atom_colr.cpp src/atom_d263.cpp src/atom_dac3.cpp \
 	src/atom_damr.cpp src/atom_dref.cpp src/atom_elst.cpp \
@@ -514,6 +518,7 @@ libmp4v2_la_SOURCES = src/3gp.cpp src/atom_ac3.cpp src/atom_amr.cpp \
 	src/qtff/coding.h src/qtff/impl.h src/qtff/qtff.h \
 	libplatform/endian.h libplatform/impl.h \
 	libplatform/io/File.cpp libplatform/io/File.h \
+	libplatform/io/File_realtimestream.cpp \
 	libplatform/io/FileSystem.cpp libplatform/io/FileSystem.h \
 	libplatform/number/random.h libplatform/platform.h \
 	libplatform/platform_base.h libplatform/platform_posix.h \
@@ -689,6 +694,7 @@ src/$(DEPDIR)/$(am__dirstamp):
 src/3gp.lo: src/$(am__dirstamp) src/$(DEPDIR)/$(am__dirstamp)
 src/atom_ac3.lo: src/$(am__dirstamp) src/$(DEPDIR)/$(am__dirstamp)
 src/atom_amr.lo: src/$(am__dirstamp) src/$(DEPDIR)/$(am__dirstamp)
+src/hevc.lo: src/$(am__dirstamp) src/$(DEPDIR)/$(am__dirstamp)
 src/atom_avc1.lo: src/$(am__dirstamp) src/$(DEPDIR)/$(am__dirstamp)
 src/atom_avcC.lo: src/$(am__dirstamp) src/$(DEPDIR)/$(am__dirstamp)
 src/atom_chpl.lo: src/$(am__dirstamp) src/$(DEPDIR)/$(am__dirstamp)
@@ -809,6 +815,8 @@ libplatform/io/$(DEPDIR)/$(am__dirstamp):
 	@$(MKDIR_P) libplatform/io/$(DEPDIR)
 	@: > libplatform/io/$(DEPDIR)/$(am__dirstamp)
 libplatform/io/File.lo: libplatform/io/$(am__dirstamp) \
+	libplatform/io/$(DEPDIR)/$(am__dirstamp)
+libplatform/io/File_realtimestream.lo: libplatform/io/$(am__dirstamp) \
 	libplatform/io/$(DEPDIR)/$(am__dirstamp)
 libplatform/io/FileSystem.lo: libplatform/io/$(am__dirstamp) \
 	libplatform/io/$(DEPDIR)/$(am__dirstamp)
@@ -1008,6 +1016,8 @@ mostlyclean-compile:
 	-rm -f libplatform/io/FileSystem_win32.lo
 	-rm -f libplatform/io/File_posix.$(OBJEXT)
 	-rm -f libplatform/io/File_posix.lo
+	-rm -f libplatform/io/File_realtimestream.$(OBJEXT)
+	-rm -f libplatform/io/File_realtimestream.lo
 	-rm -f libplatform/io/File_win32.$(OBJEXT)
 	-rm -f libplatform/io/File_win32.lo
 	-rm -f libplatform/number/random_posix.$(OBJEXT)
@@ -1046,6 +1056,8 @@ mostlyclean-compile:
 	-rm -f src/atom_ac3.lo
 	-rm -f src/atom_amr.$(OBJEXT)
 	-rm -f src/atom_amr.lo
+	-rm -f src/hevc.$(OBJEXT)
+	-rm -f src/hevc.lo
 	-rm -f src/atom_avc1.$(OBJEXT)
 	-rm -f src/atom_avc1.lo
 	-rm -f src/atom_avcC.$(OBJEXT)
@@ -1228,6 +1240,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@libplatform/io/$(DEPDIR)/FileSystem_posix.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@libplatform/io/$(DEPDIR)/FileSystem_win32.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@libplatform/io/$(DEPDIR)/File_posix.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@libplatform/io/$(DEPDIR)/File_realtimestream.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@libplatform/io/$(DEPDIR)/File_win32.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@libplatform/number/$(DEPDIR)/random_posix.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@libplatform/number/$(DEPDIR)/random_win32.Plo@am__quote@
@@ -1247,6 +1260,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/3gp.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/atom_ac3.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/atom_amr.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/hevc.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/atom_avc1.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/atom_avcC.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/atom_chpl.Plo@am__quote@

@@ -68,8 +68,17 @@ void MP4MdhdAtom::Generate()
 
     MP4Atom::Generate();
 
-    // set creation and modification times
-    MP4Timestamp now = MP4GetAbsTimestamp();
+	MP4Timestamp now = 0;
+	if(1)
+	{//获得时间
+		now = m_File.GetAllCreateTime();
+	}
+	else
+	{
+	    // set creation and modification times
+	    now = MP4GetAbsTimestamp();
+	}
+	
     if (version == 1) {
         ((MP4Integer64Property*)m_pProperties[2])->SetValue(now);
         ((MP4Integer64Property*)m_pProperties[3])->SetValue(now);

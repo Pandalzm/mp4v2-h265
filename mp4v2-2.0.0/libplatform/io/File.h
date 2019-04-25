@@ -33,6 +33,17 @@ public:
 
 protected:
     FileProvider() { }
+
+	//////////
+public:
+	virtual void SetRealTimeMode(int32_t _iMode) = 0;
+	virtual int32_t GetRealTimeMode( void ) = 0;
+	virtual bool GetRealTimeData( uint8_t** pui8Data, uint64_t* _pui64DataSize) = 0;
+	virtual uint64_t GetPositonOfBuf( void ) = 0;
+	virtual uint64_t GetTailPositonOfBuf( void ) = 0;
+	virtual void RecordAllBufNonius( void ) = 0;
+	virtual uint64_t GetLastAllBufNonius( void ) = 0;
+	static FileProvider& standardRealtimeStream();
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -181,6 +192,19 @@ public:
 public:
     void setName( const std::string& name );
     void setMode( Mode mode );
+
+	//////////
+public:
+	void SetRealTimeMode(int32_t _iMode);
+	int32_t GetRealTimeMode( void );
+	bool GetRealTimeData( uint8_t** pui8Data, uint64_t* _pui64DataSize);
+	uint64_t GetPositonOfBuf( void );
+	uint64_t GetTailPositonOfBuf( void );
+	void RecordAllBufNonius( void );
+	uint64_t GetLastAllBufNonius( void );
+	
+    explicit File( std::string name, Mode mode, FileProvider*, int32_t _i32Choice);
+
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -199,6 +223,16 @@ public:
 private:
     MP4FileProvider _call;
     void*           _handle;
+	
+	//////////
+public:
+	void SetRealTimeMode(int32_t _iMode);
+	int32_t GetRealTimeMode( void );
+	bool GetRealTimeData( uint8_t** pui8Data, uint64_t* _pui64DataSize);
+	uint64_t GetPositonOfBuf( void );
+	uint64_t GetTailPositonOfBuf( void );
+	void RecordAllBufNonius( void );
+	uint64_t GetLastAllBufNonius( void );
 };
 
 ///////////////////////////////////////////////////////////////////////////////

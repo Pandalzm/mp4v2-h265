@@ -247,6 +247,47 @@ MP4TrackId MP4AddVideoTrack(
     uint8_t       videoType DEFAULT(MP4_MPEG4_VIDEO_TYPE) );
 
 MP4V2_EXPORT
+MP4TrackId MP4AddH265VideoTrack(
+    MP4FileHandle hFile,
+    uint32_t      timeScale,
+    MP4Duration   sampleDuration,
+    uint16_t      width,
+    uint16_t      height,
+    uint8_t       AVCProfileIndication,
+    uint8_t       profile_compat,
+    uint8_t       AVCLevelIndication,
+    uint8_t       sampleLenFieldSizeMinusOne );
+
+
+/**
+ * 设置h265的视频参数集
+ * @pSequence:为参数集数据，参数集数据至少包含包含vps sps pps的nalua
+ * @sequenceLen:对应数据的长度
+ * @陈文敏(chenwenmin)
+ */
+	
+
+MP4V2_EXPORT
+void MP4AddH265VideoParameterSet (MP4FileHandle hFile,
+									 MP4TrackId trackId,
+									 const uint8_t *pSequence,
+									 uint16_t sequenceLen);
+
+MP4V2_EXPORT
+void MP4AddH265SequenceParameterSet(
+    MP4FileHandle  hFile,
+    MP4TrackId     trackId,
+    const uint8_t* pSequence,
+    uint16_t       sequenceLen );
+
+MP4V2_EXPORT
+void MP4AddH265PictureParameterSet(
+    MP4FileHandle  hFile,
+    MP4TrackId     trackId,
+    const uint8_t* pPict,
+    uint16_t       pictLen );
+
+MP4V2_EXPORT
 MP4TrackId MP4AddH264VideoTrack(
     MP4FileHandle hFile,
     uint32_t      timeScale,
@@ -445,6 +486,14 @@ MP4V2_EXPORT
 bool MP4AddIPodUUID(
     MP4FileHandle hFile,
     MP4TrackId    trackId );
+
+
+
+typedef enum {
+    H265_HEV1 = 0,
+	H265_HVCC,
+} MP4AtomType;
+
 
 /** @} ***********************************************************************/
 

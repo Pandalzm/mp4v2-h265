@@ -283,6 +283,14 @@ protected:
     MP4Integer16Property* m_pElstReservedProperty;
 
     string m_sdtpLog; // records frame types for H264 samples
+
+    //////////
+public:
+    uint64_t GetChunkSize( void );
+    void ResetChunkSize( void );
+
+private:
+    uint64_t m_ui64ChunkSize;
 };
 
 MP4ARRAY_DECL(MP4Track, MP4Track*);

@@ -40,6 +40,12 @@
 
 using namespace mp4v2::impl;
 
+uint64_t Sep = 0;
+uint8_t g_isH265 = 0;
+//#define _C_	1
+//uint8_t* g_puiBuffer = NULL;
+//uint32_t g_ui32BufSize = 1024*512;
+
 static MP4File  *ConstructMP4File ( void )
 {
     MP4File* pFile = NULL;
@@ -54,6 +60,30 @@ static MP4File  *ConstructMP4File ( void )
         delete x;
     }
     catch( ... ) {
+        mp4v2::impl::log.errorf("%s: unknown exception constructing MP4File", __FUNCTION__ );
+    }
+
+    return pFile;
+}
+
+static MP4File  *ConstructMP4File ( uint32_t realimeMode )
+{
+    MP4File* pFile = NULL;
+    try 
+	{
+        pFile = new MP4File(realimeMode);
+    }
+    catch( std::bad_alloc ) 
+	{
+        mp4v2::impl::log.errorf("%s: unable to allocate MP4File", __FUNCTION__);
+    }
+    catch( Exception* x ) 
+	{
+        mp4v2::impl::log.errorf(*x);
+        delete x;
+    }
+    catch( ... ) 
+	{
         mp4v2::impl::log.errorf("%s: unknown exception constructing MP4File", __FUNCTION__ );
     }
 
@@ -1163,6 +1193,196 @@ MP4FileHandle MP4ReadProvider( const char* fileName, const MP4FileProvider* file
         return MP4_INVALID_TRACK_ID;
     }
 
+	//===========================h265============================cwm
+	MP4TrackId MP4AddH265VideoTrack(MP4FileHandle hFile,
+									uint32_t timeScale,
+									MP4Duration sampleDuration,
+									uint16_t width,
+									uint16_t height,
+									uint8_t AVCProfileIndication,
+									uint8_t profile_compat,
+									uint8_t AVCLevelIndication,
+									uint8_t sampleLenFieldSizeMinusOne)
+	{
+		if (MP4_IS_VALID_FILE_HANDLE(hFile)) {
+			try {
+				MP4File *pFile = (MP4File *)hFile;
+
+				pFile->m_ui32width = width;
+				pFile->m_ui32height = height;
+				
+				return pFile->AddH265VideoTrack(timeScale,
+												sampleDuration,
+												width,
+												height,
+												AVCProfileIndication,
+												profile_compat,
+												AVCLevelIndication,
+												sampleLenFieldSizeMinusOne);
+			}
+			catch( Exception* x ) {
+				mp4v2::impl::log.errorf(*x);
+				delete x;
+			}
+			catch( ... ) {
+				mp4v2::impl::log.errorf( "%s: failed", __FUNCTION__ );
+			}
+		}
+		return MP4_INVALID_TRACK_ID;
+	}
+	
+	MP4TrackId MP4AddEncH265VideoTrack(
+		MP4FileHandle hFile,
+		uint32_t timeScale,
+		MP4Duration sampleDuration,
+		uint16_t width,
+		uint16_t height,
+		MP4FileHandle srcFile,
+		MP4TrackId srcTrackId,
+		mp4v2_ismacrypParams *icPp
+	)
+	
+	{
+		MP4Atom *srcAtom;
+		MP4File *pFile;
+	
+		if (MP4_IS_VALID_FILE_HANDLE(hFile)) {
+			try {
+	
+				pFile = (MP4File *)srcFile;
+				srcAtom = pFile->FindTrackAtom(srcTrackId, "mdia.minf.stbl.stsd.hev1.hvcC");
+				if (srcAtom == NULL)
+					return MP4_INVALID_TRACK_ID;
+	
+				pFile = (MP4File *)hFile;
+	
+				return pFile->AddEncH265VideoTrack(timeScale,
+												   sampleDuration,
+												   width,
+												   height,
+												   srcAtom,
+												   icPp);
+			}
+			catch( Exception* x ) {
+				mp4v2::impl::log.errorf(*x);
+				delete x;
+			}
+			catch( ... ) {
+				mp4v2::impl::log.errorf( "%s: failed", __FUNCTION__ );
+			}
+		}
+		return MP4_INVALID_TRACK_ID;
+	}
+
+	void MP4AddH265VideoParameterSet (MP4FileHandle hFile,
+										 MP4TrackId trackId,
+										 const uint8_t *pVideo,
+										 uint16_t videoLen)
+	{
+	#if 0 //cwm 1282
+		if (MP4_IS_VALID_FILE_HANDLE(hFile)) {
+			try {
+				static int init_videoparame = 0;
+				
+				MP4File *pFile = (MP4File *)hFile;
+				if(0 == init_videoparame)
+				{
+					pFile->m_pPsData = (uint8_t *)malloc(videoLen);
+					if(NULL == pFile->m_pPsData)
+					{
+						return;
+					}
+					memcpy(pFile->m_pPsData, pVideo, videoLen);
+					pFile->m_ui32PsDataSize = videoLen;
+					init_videoparame = 1;
+				}
+				
+				return;
+			}
+			catch( Exception* x ) {
+				mp4v2::impl::log.errorf(*x);
+				delete x;
+			}
+			catch( ... ) {
+				mp4v2::impl::log.errorf( "%s: failed", __FUNCTION__ );
+			}
+		}
+		#else
+		
+		if (MP4_IS_VALID_FILE_HANDLE(hFile)) {
+					try {
+						MP4File *pFile = (MP4File *)hFile;				
+						
+						pFile->AddH265VideoParameterSet(trackId,
+														   pVideo,
+														   videoLen);
+						return;
+					}
+					catch( Exception* x ) {
+						mp4v2::impl::log.errorf(*x);
+						delete x;
+					}
+					catch( ... ) {
+						mp4v2::impl::log.errorf( "%s: failed", __FUNCTION__ );
+					}
+				}
+
+		#endif //cwm 1282
+		
+		return;
+	}
+	
+	void MP4AddH265SequenceParameterSet (MP4FileHandle hFile,
+										 MP4TrackId trackId,
+										 const uint8_t *pSequence,
+										 uint16_t sequenceLen)
+	{
+		if (MP4_IS_VALID_FILE_HANDLE(hFile)) {
+			try {
+				MP4File *pFile = (MP4File *)hFile;				
+				
+				pFile->AddH265SequenceParameterSet(trackId,
+												   pSequence,
+												   sequenceLen);
+				return;
+			}
+			catch( Exception* x ) {
+				mp4v2::impl::log.errorf(*x);
+				delete x;
+			}
+			catch( ... ) {
+				mp4v2::impl::log.errorf( "%s: failed", __FUNCTION__ );
+			}
+		}
+		return;
+	}
+	void MP4AddH265PictureParameterSet (MP4FileHandle hFile,
+										MP4TrackId trackId,
+										const uint8_t *pPict,
+										uint16_t pictLen)
+	{
+		if (MP4_IS_VALID_FILE_HANDLE(hFile)) {
+			try {
+				MP4File *pFile = (MP4File *)hFile;				
+				
+				pFile->AddH265PictureParameterSet(trackId,
+												  pPict,
+												  pictLen);
+				return;
+			}
+			catch( Exception* x ) {
+				mp4v2::impl::log.errorf(*x);
+				delete x;
+			}
+			catch( ... ) {
+				mp4v2::impl::log.errorf( "%s: failed", __FUNCTION__ );
+			}
+		}
+		return;
+	}
+
+	//===========================h265============================cwm
+
 
     MP4TrackId MP4AddH264VideoTrack(MP4FileHandle hFile,
                                     uint32_t timeScale,
@@ -1710,6 +1930,69 @@ MP4FileHandle MP4ReadProvider( const char* fileName, const MP4FileProvider* file
                 }
                 free(pictheader);
                 free(pictheadersize);
+            } else if (ATOMID(media_data_name) == ATOMID("hev1")) {
+                uint8_t AVCProfileIndication;
+                uint8_t profile_compat;
+                uint8_t AVCLevelIndication;
+                uint32_t sampleLenFieldSizeMinusOne;
+                uint64_t temp;
+
+                if (MP4GetTrackH265ProfileLevel(srcFile, srcTrackId,
+                                                &AVCProfileIndication,
+                                                &AVCLevelIndication) == false) {
+                    return dstTrackId;
+                }
+                if (MP4GetTrackH265LengthSize(srcFile, srcTrackId,
+                                              &sampleLenFieldSizeMinusOne) == false) {
+                    return dstTrackId;
+                }
+                sampleLenFieldSizeMinusOne--;
+                if (MP4GetTrackIntegerProperty(srcFile, srcTrackId,
+                                               "mdia.minf.stbl.stsd.*[0].hvcC.profile_compatibility",
+                                               &temp) == false) return dstTrackId;
+                profile_compat = temp & 0xff;
+
+                dstTrackId = MP4AddH265VideoTrack(dstFile,
+                                                  MP4GetTrackTimeScale(srcFile,
+                                                                       srcTrackId),
+                                                  MP4GetTrackFixedSampleDuration(srcFile,
+                                                                                 srcTrackId),
+                                                  MP4GetTrackVideoWidth(srcFile,
+                                                                        srcTrackId),
+                                                  MP4GetTrackVideoHeight(srcFile,
+                                                                         srcTrackId),
+                                                  AVCProfileIndication,
+                                                  profile_compat,
+                                                  AVCLevelIndication,
+                                                  sampleLenFieldSizeMinusOne);
+                uint8_t **vidheader, **seqheader, **pictheader;//cwm添加对视频参数集的支持
+                uint32_t *pictheadersize, *seqheadersize, *vidheadersize;
+                uint32_t ix;
+                MP4GetTrackH265SeqPictHeaders(srcFile, srcTrackId,
+											  &vidheader, &vidheadersize,
+                                              &seqheader, &seqheadersize,
+                                              &pictheader, &pictheadersize);
+				for (ix = 0; vidheadersize[ix] != 0; ix++) {
+					MP4AddH265VideoParameterSet(dstFile, dstTrackId,
+								   				   vidheader[ix], vidheadersize[ix]);
+					free(vidheader[ix]);
+				}
+				free(vidheader);
+				free(vidheadersize);
+                for (ix = 0; seqheadersize[ix] != 0; ix++) {
+                    MP4AddH265SequenceParameterSet(dstFile, dstTrackId,
+                                                   seqheader[ix], seqheadersize[ix]);
+                    free(seqheader[ix]);
+                }
+                free(seqheader);
+                free(seqheadersize);
+                for (ix = 0; pictheadersize[ix] != 0; ix++) {
+                    MP4AddH265PictureParameterSet(dstFile, dstTrackId,
+                                                  pictheader[ix], pictheadersize[ix]);
+                    free(pictheader[ix]);
+                }
+                free(pictheader);
+                free(pictheadersize);
             } else
                 return dstTrackId;
         } else if (MP4_IS_AUDIO_TRACK_TYPE(trackType)) {
@@ -1849,6 +2132,17 @@ MP4FileHandle MP4ReadProvider( const char* fileName, const MP4FileProvider* file
             if (!strcasecmp(oFormat, "avc1"))
             {
                 dstTrackId = MP4AddEncH264VideoTrack(dstFile,
+                                                     MP4GetTrackTimeScale(srcFile, srcTrackId),
+                                                     MP4GetTrackFixedSampleDuration(srcFile, srcTrackId),
+                                                     MP4GetTrackVideoWidth(srcFile, srcTrackId),
+                                                     MP4GetTrackVideoHeight(srcFile, srcTrackId),
+                                                     srcFile,
+                                                     srcTrackId,
+                                                     icPp
+                                                    );
+            }else if (!strcasecmp(oFormat, "hev1"))//cwm
+            {
+                dstTrackId = MP4AddEncH265VideoTrack(dstFile,
                                                      MP4GetTrackTimeScale(srcFile, srcTrackId),
                                                      MP4GetTrackFixedSampleDuration(srcFile, srcTrackId),
                                                      MP4GetTrackVideoWidth(srcFile, srcTrackId),
@@ -2504,6 +2798,86 @@ MP4FileHandle MP4ReadProvider( const char* fileName, const MP4FileProvider* file
         }
         return false;
     }
+	
+	bool MP4GetTrackH265ProfileLevel (MP4FileHandle hFile,
+									  MP4TrackId trackId,
+									  uint8_t *pProfile,
+									  uint8_t *pLevel)
+	{
+		if (MP4_IS_VALID_FILE_HANDLE(hFile)) {
+			try {
+				*pProfile =
+					((MP4File *)hFile)->GetTrackIntegerProperty(trackId,
+							"mdia.minf.stbl.stsd.*[0].hvcC.AVCProfileIndication");
+				*pLevel =
+					((MP4File *)hFile)->GetTrackIntegerProperty(trackId,
+							"mdia.minf.stbl.stsd.*[0].hvcC.AVCLevelIndication");
+	
+				return true;
+			}
+			catch( Exception* x ) {
+				mp4v2::impl::log.errorf(*x);
+				delete x;
+			}
+			catch( ... ) {
+				mp4v2::impl::log.errorf( "%s: failed", __FUNCTION__ );
+			}
+		}
+		return false;
+	}
+	
+	bool MP4GetTrackH265SeqPictHeaders (MP4FileHandle hFile,
+										MP4TrackId trackId,
+										uint8_t ***pVidHeader,
+										uint32_t **pVidHeaderSize,
+										uint8_t ***pSeqHeader,
+										uint32_t **pSeqHeaderSize,
+										uint8_t ***pPictHeader,
+										uint32_t **pPictHeaderSize)
+	{
+		if (MP4_IS_VALID_FILE_HANDLE(hFile)) {
+			try {
+				((MP4File*)hFile)->GetTrackH265SeqPictHeaders(trackId,
+						pVidHeader,
+						pVidHeaderSize,
+						pSeqHeader,
+						pSeqHeaderSize,
+						pPictHeader,
+						pPictHeaderSize);
+				return true;
+			}
+			catch( Exception* x ) {
+				mp4v2::impl::log.errorf(*x);
+				delete x;
+			}
+			catch( ... ) {
+				mp4v2::impl::log.errorf( "%s: failed", __FUNCTION__ );
+			}
+		}
+		return false;
+	}
+	bool MP4GetTrackH265LengthSize (MP4FileHandle hFile,
+									MP4TrackId trackId,
+									uint32_t *pLength)
+	{
+		if (MP4_IS_VALID_FILE_HANDLE(hFile)) {
+			try {
+				*pLength = 1 +
+						   ((MP4File*) hFile)->GetTrackIntegerProperty(trackId,
+								   "mdia.minf.stbl.stsd.*[0].hvcC.lengthSizeMinusOne");
+				return true;
+			}
+			catch( Exception* x ) {
+				mp4v2::impl::log.errorf(*x);
+				delete x;
+			}
+			catch( ... ) {
+				mp4v2::impl::log.errorf( "%s: failed", __FUNCTION__ );
+			}
+		}
+		return false;
+	}
+	
 
     bool MP4GetTrackH264ProfileLevel (MP4FileHandle hFile,
                                       MP4TrackId trackId,
@@ -4350,12 +4724,19 @@ MP4FileHandle MP4ReadProvider( const char* fileName, const MP4FileProvider* file
 
         MP4Track* track = NULL;
         MP4Atom* avc1 = NULL;
+        MP4Atom* hev1 = NULL;
 
         try
         {
             track = ((MP4File*)hFile)->GetTrack(trackId);
             ASSERT(track);
-            avc1 = track->GetTrakAtom().FindChildAtom("mdia.minf.stbl.stsd.avc1");
+        	if(g_isH265 == 1)
+        	{
+            	hev1 = track->GetTrakAtom().FindChildAtom("mdia.minf.stbl.stsd.hev1");
+			}else
+			{
+            	avc1 = track->GetTrakAtom().FindChildAtom("mdia.minf.stbl.stsd.avc1");
+			}
         }
         catch( Exception* x ) {
             mp4v2::impl::log.errorf(*x);
@@ -4387,9 +4768,17 @@ MP4FileHandle MP4ReadProvider( const char* fileName, const MP4FileProvider* file
 
         try
         {
-            ASSERT(avc1);
-            ASSERT(ipod_uuid);
-            avc1->AddChildAtom(ipod_uuid);
+        	if(g_isH265 == 1)
+        	{
+	            ASSERT(hev1);
+	            ASSERT(ipod_uuid);
+	            hev1->AddChildAtom(ipod_uuid);
+			}else
+			{
+	            ASSERT(avc1);
+	            ASSERT(ipod_uuid);
+	            avc1->AddChildAtom(ipod_uuid);
+			}
             return true;
         }
         catch( Exception* x ) {
@@ -4557,6 +4946,671 @@ bool MP4SetTrackDurationPerChunk(
 
     return false;
 }
+
+///////////////////////////////////////////////////////////////////////////////
+
+//////////////////////////////////////////////////
+
+///////////////////////////////////////////////////////////////////////////////
+
+MP4FileHandle MP4CreateMM(
+	const char* fileName,
+	uint32_t  flags,
+	int add_ftyp,
+	int add_iods,
+	char* majorBrand,
+	uint32_t minorVersion,
+	char** supportedBrands,
+	uint32_t supportedBrandsCount,
+    bool mulMdat,
+    uint64_t mdatSize)
+{
+    if (!fileName)
+	{
+	    return MP4_INVALID_FILE_HANDLE;
+	}    
+
+    MP4File* pFile = ConstructMP4File();
+    if (!pFile)
+	{
+        return MP4_INVALID_FILE_HANDLE;
+    }
+
+    if(mulMdat)
+    {
+        pFile->SetMulMdatMode();
+    }
+
+	pFile->SetMdatSize(mdatSize);
+
+    try 
+	{
+        ASSERT(pFile);
+        // LATER useExtensibleFormat, moov first, then mvex's
+        pFile->Create(fileName, flags, add_ftyp, add_iods,
+                      majorBrand, minorVersion,
+                      supportedBrands, supportedBrandsCount);
+        return (MP4FileHandle)pFile;
+    }
+    catch( Exception* x ) 
+	{
+        mp4v2::impl::log.errorf(*x);
+        delete x;
+    }
+    catch( ... ) 
+	{
+        mp4v2::impl::log.errorf("%s: \"%s\": failed", __FUNCTION__,
+                                fileName );
+    }
+
+    if (pFile)
+    {
+        delete pFile;
+    }
+    return MP4_INVALID_FILE_HANDLE;
+}
+
+MP4FileHandle MP4CreateRT(
+	const char* fileName,
+	uint32_t    flags,
+	int         add_ftyp,
+	int         add_iods,
+	char*       majorBrand,
+	uint32_t    minorVersion,
+	char**      supportedBrands,
+	uint32_t    supportedBrandsCount,
+    uint32_t    realimeMode,
+    uint64_t    mdatSize,
+    bool        encryptionFlag,
+    uint8_t**   realimeData,
+    uint64_t*   realimeDataSize)
+{
+    if(realimeMode > MP4_NORMAL)
+	{//do nothing
+    }
+	else
+	{
+	    if (!fileName)
+	    {
+	        return MP4_INVALID_FILE_HANDLE;
+	    }
+	}
+
+#ifdef _C_
+//    if(MP4_RT_MOOV == realimeMode){
+//		g_puiBuffer = (uint8_t*)malloc(g_ui32BufSize);
+//		if(NULL == g_puiBuffer){
+//			return false;
+//		}
+//	}
+#endif
+
+    MP4File* pFile = ConstructMP4File(realimeMode);
+    if (!pFile)
+	{
+        return MP4_INVALID_FILE_HANDLE;
+	}
+
+    try 
+	{
+	    if(realimeMode > MP4_NORMAL)
+		{
+	        pFile->SetRealTimeModeBeforeOpen(realimeMode);
+	        pFile->SetMulMdatMode();
+			pFile->SetMdatSize(mdatSize);
+	    }
+		if((MP4_ADD_INFO == realimeMode) && encryptionFlag)
+		{
+			pFile->SetEncryptionFlag();
+		}
+		
+        ASSERT(pFile);
+        // LATER useExtensibleFormat, moov first, then mvex's
+        pFile->Create("rtstream", flags, add_ftyp, add_iods,
+                      majorBrand, minorVersion,
+                      supportedBrands, supportedBrandsCount);
+		
+		//if((realimeMode > MP4_NORMAL) && ((NULL != realimeData)&&(NULL != realimeDataSize))){
+		//	pFile->GetRealTimeData(realimeData, realimeDataSize);
+		//}
+        return (MP4FileHandle)pFile;
+    }
+    catch( Exception* x ) 
+	{
+        mp4v2::impl::log.errorf(*x);
+        delete x;
+    }
+    catch( ... ) 
+	{
+        mp4v2::impl::log.errorf("%s: \"%s\": failed", __FUNCTION__,
+                                fileName );
+    }
+
+    if (pFile)
+	{
+        delete pFile;
+    }
+    return MP4_INVALID_FILE_HANDLE;
+}
+
+bool MP4WriteSampleRT(
+	MP4FileHandle  hFile,
+	MP4TrackId	   trackId,
+	const uint8_t* pBytes,
+	uint32_t	   numBytes,
+	MP4Duration    duration,
+	MP4Duration    renderingOffset,
+	bool		   isSyncSample,
+	bool		   isVirtualFrame,
+    uint8_t**      realimeData,
+    uint64_t*      realimeDataSize)
+{
+	mp4v2::impl::log.infof("MP4WriteSampleRT !!!-!!! Sep=%llu, numBytes=%u.\n", Sep, numBytes);
+	Sep++;
+
+	if( MP4_IS_VALID_FILE_HANDLE( hFile )) 
+	{
+		try 
+		{
+			if( MP4_RT_MOOV == ((MP4File*)hFile)->GetRealTimeMode() )
+			{
+				uint8_t* pBytesBak = NULL;
+				uint8_t* realimeDataBak = NULL;
+				uint64_t realimeDataSizeBak = 0;
+				
+				#if 0
+				pBytesBak = (uint8_t*)malloc(numBytes+8);
+				if(NULL == pBytesBak){
+					return false;
+				}
+				#else
+				if(numBytes+8+(1?8:0) > ((MP4File*)hFile)->m_uiSizeOfVirtualMoovData)
+				{
+					((MP4File*)hFile)->m_pVirtualMoovData = (uint8_t*)MP4Realloc(((MP4File*)hFile)->m_pVirtualMoovData,numBytes+8+(1?8:0));
+					if(NULL == ((MP4File*)hFile)->m_pVirtualMoovData)
+					{
+						mp4v2::impl::log.errorf("error: MP4Realloc failed for m_pVirtualMoovData!\n");
+						return false;
+					}
+					((MP4File*)hFile)->m_uiSizeOfVirtualMoovData = numBytes+8+(1?8:0);
+				}
+				pBytesBak = ((MP4File*)hFile)->m_pVirtualMoovData;
+				//#else
+				//pBytesBak = (uint8_t*)malloc(numBytes+8);
+				//if(NULL == pBytesBak){
+				//	return false;
+				//}
+				#endif
+
+				#if 0
+				if(NULL != realimeData)
+				{
+					((MP4File*)hFile)->m_bVirtualFrameFlag = true;
+				}
+				#else
+				if(isVirtualFrame)
+				{
+					((MP4File*)hFile)->m_bVirtualFrameFlag = true;
+				}
+				#endif
+				
+				
+				if((((MP4File*)hFile)->m_bVirtualFrameFlag) && (MP4_DEFAULT == ((MP4File*)hFile)->m_eBoxType))
+				{
+					#if 0
+					((MP4File*)hFile)->WriteSample(
+						trackId,
+						pBytes,
+						numBytes,
+						duration,
+						renderingOffset,
+						isSyncSample );
+					if(((MP4File*)hFile)->GetRealTimeMode() > MP4_NORMAL){
+						((MP4File*)hFile)->GetRealTimeData(&realimeDataBak, &realimeDataSizeBak);
+					}
+					
+				    pBytesBak[0] = ((numBytes+8) >> 24) & 0xFF;
+				    pBytesBak[1] = ((numBytes+8) >> 16) & 0xFF;
+				    pBytesBak[2] = ((numBytes+8) >> 8) & 0xFF;
+				    pBytesBak[3] = (numBytes+8) & 0xFF;
+					
+					memcpy(pBytesBak+4, "mdat", 4);
+					memcpy(pBytesBak+8, pBytes, numBytes);
+					*realimeData = pBytesBak;
+					*realimeDataSize = numBytes+8;
+					#else
+					((MP4File*)hFile)->WriteSample(
+						trackId,
+						pBytes,
+						numBytes,
+						duration,
+						renderingOffset,
+						isSyncSample );
+					if(((MP4File*)hFile)->GetRealTimeMode() > MP4_NORMAL){
+						((MP4File*)hFile)->GetRealTimeData(&realimeDataBak, &realimeDataSizeBak);
+					}
+
+					#if 0
+				    pBytesBak[0] = ((numBytes+8) >> 24) & 0xFF;
+				    pBytesBak[1] = ((numBytes+8) >> 16) & 0xFF;
+				    pBytesBak[2] = ((numBytes+8) >> 8) & 0xFF;
+				    pBytesBak[3] = (numBytes+8) & 0xFF;
+					
+					memcpy(pBytesBak+4, "mdat", 4);
+					memcpy(pBytesBak+8, pBytes, numBytes);
+					//*realimeData = pBytesBak;
+					//*realimeDataSize = numBytes+8;
+					#else
+
+					uint32_t iTmp = (numBytes+8+(1?8:0));
+					
+				    pBytesBak[3] = 1;
+					
+					memcpy(pBytesBak+4, "mdat", 4);
+
+					
+				    for (int i = 15; i >= 8; i--) {
+				        pBytesBak[i] = iTmp & 0xFF;
+				        iTmp >>= 8;
+				    }
+					
+					memcpy(pBytesBak+8+(1?8:0), pBytes, numBytes);
+						
+					#endif
+
+					
+					if(NULL != ((MP4File*)hFile)->m_RealtimeStreamFun)
+					{
+						//uint8_t* pui8Data = NULL;
+						//uint64_t pui64DataSize= 0;
+						//((MP4File*)hFile)->GetRealTimeData(&pui8Data, &pui64DataSize);
+						((MP4File*)hFile)->m_RealtimeStreamFun((void*)(hFile), 0, pBytesBak, numBytes+8+(1?8:0));
+					}
+					#endif
+				}
+				else
+				{		
+					((MP4File*)hFile)->WriteSample(
+						trackId,
+						pBytesBak,
+						numBytes,
+						duration,
+						renderingOffset,
+						isSyncSample );
+					if(((MP4File*)hFile)->GetRealTimeMode() > MP4_NORMAL)
+					{
+						((MP4File*)hFile)->GetRealTimeData(&realimeDataBak, &realimeDataSizeBak);
+					}
+					
+					#ifdef _C_
+					#else	
+					#if 0
+					if(NULL != pBytesBak){
+						free(pBytesBak);
+						pBytesBak = NULL;
+					}
+					#endif
+					#endif
+				}
+				
+				#ifdef _C_
+				#else
+				if(NULL != realimeDataBak){
+					free(realimeDataBak);
+					realimeDataBak = NULL;
+				}
+				#endif
+				
+			}
+			else
+			{
+				if(((MP4File*)hFile)->m_IsHead)
+				{//文件头
+					((MP4File*)hFile)->m_IsHead= false;
+					if(NULL != ((MP4File*)hFile)->m_RealtimeStreamFun)
+					{//将特殊标识加入文件头位置
+						uint8_t* pui8Data = NULL;
+						uint64_t pui64DataSize= 0;
+						((MP4File*)hFile)->GetRealTimeData(&pui8Data, &pui64DataSize);
+						if( (NULL != pui8Data) && (pui64DataSize > 0) )
+						{
+							pui8Data[36] = (((MP4File*)hFile)->m_Encryption >> 24) & 0xFF;
+							pui8Data[37] = (((MP4File*)hFile)->m_Encryption >> 16) & 0xFF;
+							pui8Data[38] = (((MP4File*)hFile)->m_Encryption >> 8) & 0xFF;
+							pui8Data[39] = ((MP4File*)hFile)->m_Encryption & 0xFF;
+							
+							pui8Data[40] = (((MP4File*)hFile)->m_AudioEncode >> 24) & 0xFF;
+							pui8Data[41] = (((MP4File*)hFile)->m_AudioEncode >> 16) & 0xFF;
+							pui8Data[42] = (((MP4File*)hFile)->m_AudioEncode >> 8) & 0xFF;
+							pui8Data[43] = ((MP4File*)hFile)->m_AudioEncode & 0xFF;
+							((MP4File*)hFile)->m_RealtimeStreamFun((void*)(hFile), 0, pui8Data, pui64DataSize);
+						}
+					}
+					else
+					{//此分支暂时不用
+						((MP4File*)hFile)->GetRealTimeData(realimeData, realimeDataSize);
+					}
+					
+				}
+				
+				if(isVirtualFrame)
+				{
+					((MP4File*)hFile)->m_bNormalVirtualFrameFlag = true;
+				}
+
+				((MP4File*)hFile)->WriteSample(
+					trackId,
+					pBytes,
+					numBytes,
+					duration,
+					renderingOffset,
+					isSyncSample );
+				
+				if(((MP4File*)hFile)->GetRealTimeMode() > MP4_NORMAL)
+				{
+					if(NULL != ((MP4File*)hFile)->m_RealtimeStreamFun)
+					{
+						uint8_t* pui8Data = NULL;
+						uint64_t pui64DataSize= 0;
+						((MP4File*)hFile)->GetRealTimeData(&pui8Data, &pui64DataSize);
+						if( (NULL != pui8Data) && (pui64DataSize > 0) )
+						{
+							((MP4File*)hFile)->m_RealtimeStreamFun((void*)(hFile), 0, pui8Data, pui64DataSize);
+						}
+					}
+					else
+					{
+						((MP4File*)hFile)->GetRealTimeData(realimeData, realimeDataSize);
+					}
+				}
+			}
+			return true;
+		}
+		catch( Exception* x ) 
+		{
+			mp4v2::impl::log.errorf(*x);
+			delete x;
+		}
+		catch( ... ) 
+		{
+			mp4v2::impl::log.errorf( "%s: failed", __FUNCTION__ );
+		}
+	}
+	return false;
+}
+
+void MP4CloseRT(
+	MP4FileHandle hFile, 
+	uint32_t      flags,
+    uint8_t**     realimeData,
+    uint64_t*     realimeDataSize)
+{
+	if( !MP4_IS_VALID_FILE_HANDLE( hFile ))
+	{
+		return;
+    }
+
+	MP4File& f = *(MP4File*)hFile;
+	try 
+	{
+		bool bTmp = (bool)(NULL == f.m_RealtimeStreamFun);
+		if(flags == MP4_CLOSE_DO_NOT_COMPUTE_BITRATE_V2)
+		{//To prevent the upper block
+			f.m_RealtimeStreamFun = NULL;
+			flags = MP4_CLOSE_DO_NOT_COMPUTE_BITRATE;
+		}
+		f.Close(flags);
+		
+		if(bTmp)
+		{
+			*realimeData = f.m_mdatBuf;
+			*realimeDataSize = f.m_mdatBufSize;
+		}
+	}
+	catch( Exception* x ) 
+	{
+		mp4v2::impl::log.errorf(*x);
+		delete x;
+	}
+	catch( ... ) 
+	{
+		mp4v2::impl::log.errorf( "%s: failed", __FUNCTION__ );
+	}
+
+	delete &f;
+}
+
+bool MP4WriteBaseUnit(MP4FileHandle hFile, MP4SelfType selfType, uint32_t memSize, uint8_t* unitBuf, uint32_t uinitBufSize)
+{
+	mp4v2::impl::log.infof("MP4WriteBaseUnit !!!-!!! @@@-@@@ Sep=%llu, BaseUnitSize=%u.\n", Sep, uinitBufSize);
+	Sep++;
+
+    if( MP4_IS_VALID_FILE_HANDLE( hFile )) 
+	{
+        try 
+		{
+			switch(selfType)
+			{
+				case ADET:
+				{
+					memcpy(&(((MP4File*)hFile)->m_AudioEncode), unitBuf, 4);
+					break;
+				}
+				case ENCT:
+				{
+					memcpy(&(((MP4File*)hFile)->m_Encryption), unitBuf, 4);
+					break;
+				}
+				default:
+				{
+					break;
+				}
+			}
+			return ((MP4File*)hFile)->WriteBaseUnit(selfType, memSize, unitBuf, uinitBufSize);
+        }
+        catch( Exception* x ) 
+		{
+            mp4v2::impl::log.errorf(*x);
+            delete x;
+        }
+        catch( ... ) 
+		{
+            mp4v2::impl::log.errorf( "%s: failed", __FUNCTION__ );
+        }
+    }
+    return false;
+}
+
+void MP4SetAllCreateTime(MP4Timestamp createTime)
+{//统一文件时间
+    try 
+	{
+		//((MP4File*)hFile)->SetAllCreateTime(createTime);			
+		MP4File::SetAllCreateTime(createTime);
+    }
+    catch( Exception* x ) 
+	{
+        mp4v2::impl::log.errorf(*x);
+        delete x;
+    }
+    catch( ... ) 
+	{
+        mp4v2::impl::log.errorf( "%s: failed", __FUNCTION__ );
+    }
+}
+
+int64_t MP4GetFileTailSize(MP4FileHandle hFile)
+{//获取文件尾大小
+    try 
+	{
+		return ((MP4File*)hFile)->GetFileTailSize();
+    }
+    catch( Exception* x ) 
+	{
+        mp4v2::impl::log.errorf(*x);
+        delete x;
+    }
+    catch( ... ) 
+	{
+        mp4v2::impl::log.errorf( "%s: failed", __FUNCTION__ );
+    }
+	return MP4_INVALID_TAIL;
+}
+
+bool MP4WriteAlignData(MP4FileHandle hFile, uint8_t* unitBuf, uint64_t uinitBufSize, uint32_t uiVfSize)
+{//断电修复对用使用
+    try 
+	{
+		return ((MP4File*)hFile)->WriteAlignData(unitBuf, uinitBufSize, uiVfSize);
+    }
+    catch( Exception* x ) 
+	{
+        mp4v2::impl::log.errorf(*x);
+        delete x;
+    }
+    catch( ... ) 
+	{
+        mp4v2::impl::log.errorf( "%s: failed", __FUNCTION__ );
+    }
+	return MP4_INVALID_TAIL;
+}
+
+bool MP4SetRealtimeCallbackFun(MP4FileHandle hFile, void* callbackFun)
+{
+    try 
+	{
+		return ((MP4File*)hFile)->SetRealtimeCallbackFun(callbackFun);
+    }
+    catch( Exception* x )
+	{
+        mp4v2::impl::log.errorf(*x);
+        delete x;
+    }
+    catch( ... ) 
+	{
+        mp4v2::impl::log.errorf( "%s: failed", __FUNCTION__ );
+    }
+	return MP4_INVALID_TAIL;
+}
+
+bool MP4SetSelfDataMode(MP4FileHandle hFile, uint32_t uiMode)
+{//紧凑的MDAT模式
+    try 
+	{
+		return ((MP4File*)hFile)->SetSelfDataMode(uiMode);
+    }
+    catch( Exception* x ) 
+	{
+        mp4v2::impl::log.errorf(*x);
+        delete x;
+    }
+    catch( ... ) 
+	{
+        mp4v2::impl::log.errorf( "%s: failed", __FUNCTION__ );
+    }
+	return MP4_INVALID_TAIL;
+}
+
+MP4FileHandle MP4CreateRTV2(
+	const char* fileName,
+	uint32_t    flags,
+	int         add_ftyp,
+	int         add_iods,
+	char*       majorBrand,
+	uint32_t    minorVersion,
+	char**      supportedBrands,
+	uint32_t    supportedBrandsCount,
+    uint32_t    realimeMode,
+    uint64_t    mdatSize,
+    bool        encryptionFlag,
+    uint8_t*    callbackFun,
+    uint8_t**   realimeData,
+    uint64_t*   realimeDataSize)
+{//扩展用
+    if(realimeMode > MP4_NORMAL)
+	{//do nothing
+    }
+	else
+	{
+	    if (!fileName)
+		{
+	        return MP4_INVALID_FILE_HANDLE;
+		}
+	}
+
+    MP4File* pFile = ConstructMP4File(realimeMode);
+    if (!pFile)
+    {
+        return MP4_INVALID_FILE_HANDLE;
+    }
+
+    try 
+	{
+	    if(realimeMode > MP4_NORMAL)
+		{
+	        pFile->SetRealTimeModeBeforeOpen(realimeMode);
+	        pFile->SetMulMdatMode();
+			pFile->SetMdatSize(mdatSize);
+	    }
+		if((MP4_ADD_INFO == realimeMode) && encryptionFlag)
+		{
+			pFile->SetEncryptionFlag();
+		}
+		
+        ASSERT(pFile);
+        // LATER useExtensibleFormat, moov first, then mvex's
+        pFile->Create("rtstream", flags, add_ftyp, add_iods,
+                      majorBrand, minorVersion,
+                      supportedBrands, supportedBrandsCount);
+		pFile->SetRealtimeCallbackFun(callbackFun);
+
+		if(realimeMode > MP4_NORMAL)
+		{
+			pFile->GetRealTimeData(realimeData, realimeDataSize);
+		}
+
+        return (MP4FileHandle)pFile;
+    }
+    catch( Exception* x ) 
+	{
+        mp4v2::impl::log.errorf(*x);
+        delete x;
+    }
+    catch( ... ) 
+	{
+        mp4v2::impl::log.errorf("%s: \"%s\": failed", __FUNCTION__,
+                                fileName );
+    }
+
+    if (pFile)
+    {
+        delete pFile;
+	}
+    return MP4_INVALID_FILE_HANDLE;
+}
+
+bool MP4AlignTail(MP4FileHandle hFile, MP4BoxType eType, uint32_t uiLength)
+{
+    if( MP4_IS_VALID_FILE_HANDLE( hFile )) 
+	{
+        try 
+		{
+			return ((MP4File*)hFile)->AlignTail(eType, uiLength);
+        }
+        catch( Exception* x ) 
+		{
+            mp4v2::impl::log.errorf(*x);
+            delete x;
+        }
+        catch( ... ) 
+		{
+            mp4v2::impl::log.errorf( "%s: failed", __FUNCTION__ );
+        }
+    }
+    return false;
+	
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////
 

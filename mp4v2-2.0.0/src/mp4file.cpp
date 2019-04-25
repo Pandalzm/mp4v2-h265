@@ -29,24 +29,341 @@
  */
 
 #include "src/impl.h"
+#include "libavcodec/hevc.h"
+#include "libavutil/log.h"
 
 namespace mp4v2 { namespace impl {
 
+using namespace platform::time;
+
 ///////////////////////////////////////////////////////////////////////////////
+
+#define SELFBUFSIZE	1024*512
+
+#define LARGE_FILE_SIZE	8
+
+//////////
+CFDNode::CFDNode()
+{
+	m_pData = NULL;
+	m_pNext = NULL;
+}
+
+void CFDNode::WriteUint32(uint8_t* uiBuf, uint32_t uiValue)
+{
+    uiBuf[0] = (uiValue >> 24) & 0xFF;
+    uiBuf[1] = (uiValue >> 16) & 0xFF;
+    uiBuf[2] = (uiValue >> 8) & 0xFF;
+    uiBuf[3] = uiValue & 0xFF;
+}
+
+CFDNode::CFDNode(MP4SelfType selfType, uint32_t memSize, uint8_t* unitBuf, uint32_t uinitBufSize)
+{//组成节点数据
+	m_pData = (BUnit*)malloc(uinitBufSize + sizeof(BUnit));
+	if(NULL == m_pData)
+	{
+		throw new Exception("malloc memery for m_pData failed!\n", __FILE__, __LINE__, __FUNCTION__ );
+	}
+	MP4File::m_ui32MallocCount++;
+
+	m_pData->m_uiSize = uinitBufSize + sizeof(BUnit);
+
+	switch(selfType)
+	{
+		case VMFT:
+		{
+			memcpy(m_pData->m_ucType, (uint8_t*)VIRTUAL_FRAME_TYPE, 4);
+			break;
+		}
+		case AVST:
+		{
+			memcpy(m_pData->m_ucType, (uint8_t*)AV_SAMPLE_INFO_TYPE, 4);
+			break;
+		}
+		case VDTT:
+		{
+			memcpy(m_pData->m_ucType, (uint8_t*)VIDEO_TRACK_INFO_TYPE, 4);
+			break;
+		}
+		case ADTT:
+		{
+			memcpy(m_pData->m_ucType, (uint8_t*)AUDIO_TRACK_INFO_TYPE, 4);
+			break;
+		}
+		case VDST:
+		{
+			memcpy(m_pData->m_ucType, (uint8_t*)AV_SAMPLE_INFO_TYPE, 4);
+			break;
+		}
+		case ADST:
+		{
+			memcpy(m_pData->m_ucType, (uint8_t*)AV_SAMPLE_INFO_TYPE, 4);
+			break;
+		}
+		case ADET:
+		{
+			memcpy(m_pData->m_ucType, (uint8_t*)AUDIO_ENCODE_TYPE, 4);
+			break;
+		}
+		case ENCT:
+		{
+			memcpy(m_pData->m_ucType, (uint8_t*)ENCRYPTION_TYPE, 4);
+			break;
+		}
+		case AJON:
+		{
+			memcpy(m_pData->m_ucType, (uint8_t*)ADJOURN, 4);
+			break;
+		}
+		default:
+		{
+			log.infof("default: error!\n");
+			break;
+		}
+	}
+
+	m_pData->m_uiMemSize = memSize;
+//	WriteUint32((uint8_t*)&m_pData->m_uiMemSize, memSize);
+	memcpy(m_pData->m_pUserData, unitBuf, uinitBufSize);
+	m_pNext = NULL;
+}
+
+CFDNode::~CFDNode()
+{
+	if(NULL != m_pData)
+	{
+		free(m_pData);
+		m_pData = NULL;
+		MP4File::m_ui32MallocCount--;
+	}
+	m_pNext = NULL;
+}
+
+//////////
+
+CFDNode* MP4SelfBufList::PopNode()
+{
+	CFDNode* pTmpHead = NULL;
+	if(NULL != m_pHead)
+	{
+		pTmpHead = m_pHead;
+		m_pHead = pTmpHead->m_pNext;
+		m_iCount--;
+	}
+	
+	return pTmpHead;
+}
+
+void MP4SelfBufList::ResetData(uint32_t uiValue)
+{//重置数据
+	if(0 == m_iCount)
+	{
+		log.infof("%s:%d---===> 1 m_iListSize=%llu.\n", __FUNCTION__, __LINE__, m_iListSize);
+		m_iListSize = 0;
+	}
+	if(uiValue > 0)
+	{
+		log.infof("%s:%d---===> 2 m_iListSize=%llu.\n", __FUNCTION__, __LINE__,  m_iListSize);
+		m_iListSize -= uiValue;
+	}
+}
+
+bool MP4SelfBufList::PushNode(CFDNode* _pNode)
+{
+	if(NULL == m_pHead)
+	{
+		m_pHead = _pNode;
+		m_pTail = _pNode;
+	}
+	else
+	{
+		m_pTail->m_pNext = _pNode;
+		m_pTail = _pNode;
+	}
+	m_iCount++;
+	m_iListSize += _pNode->m_pData->m_uiSize;
+	
+	return true;
+}
+
+MP4SelfBufList::MP4SelfBufList()
+{
+	m_pTail = NULL;
+	m_pHead = NULL;
+	m_iCount = 0;
+	m_iListSize = 0;
+}
+
+MP4SelfBufList::~MP4SelfBufList()
+{
+	CFDNode* pNonius = NULL;
+	CFDNode* pNext = NULL;
+	pNonius = m_pHead;
+	while(pNonius)
+	{
+		pNext = pNonius->m_pNext;
+		delete pNonius;
+		pNonius = pNext;
+	}
+	m_iCount = 0;
+	m_iListSize = 0;
+}
+
+//////////
+
+MP4SelfBuf::MP4SelfBuf()
+{
+	m_uiSize = 0;
+	memset(m_ucType, 0, 4);
+	m_uiMemSize = 0;
+	m_cBuf = NULL;
+	m_uBufSize = 0;
+	m_uBufTotalSize = 0;
+}
+
+MP4SelfBuf::~MP4SelfBuf()
+{
+	MP4Free(m_cBuf);
+	m_cBuf = NULL;
+	m_uBufSize = 0;
+	m_uBufTotalSize = 0;
+}
+
+void MP4SelfBuf::ResetData()
+{
+	MP4Free(m_cBuf);	
+	m_uiSize = 0;
+	memset(m_ucType, 0, 4);
+	m_uiMemSize = 0;
+	m_cBuf = NULL;
+	m_uBufSize = 0;
+	m_uBufTotalSize= 0;
+}
+
+bool MP4SelfBuf::InitData(uint32_t uiSize, uint8_t* pType, uint32_t uiMemSize)
+{//初始化
+	int iPos = 0;
+	m_cBuf = (uint8_t*)malloc(24);
+	if(NULL == m_cBuf)
+	{
+		return false;
+	}
+	MP4File::m_ui32MallocCount++;
+
+	m_uiSize = uiSize;
+	memcpy(m_ucType, pType, 4);
+	m_uiMemSize = uiMemSize;
+
+	iPos = 0;
+	memcpy(m_cBuf+iPos, SELF_DEFINE_FLAG, 8);
+	iPos += 8;
+	WriteUint32((uint8_t*)(m_cBuf+iPos), SELF_VERSION);
+	iPos += 4;
+	WriteUint32((uint8_t*)(m_cBuf+iPos), m_uiSize);
+	iPos += 4;
+	memcpy((uint8_t*)(m_cBuf+iPos), m_ucType, 4);
+	iPos += 4;
+	WriteUint32((uint8_t*)(m_cBuf+iPos), m_uiMemSize);
+	iPos += 4;
+	m_uBufSize = 24;
+	m_uBufTotalSize = 24;
+
+	log.infof("MP4SelfBuf::InitData end.pType=%s\n",pType);
+	return true;
+}
+
+void MP4SelfBuf::WriteUint32(uint8_t* uiBuf, uint32_t uiValue)
+{
+    uiBuf[0] = (uiValue >> 24) & 0xFF;
+    uiBuf[1] = (uiValue >> 16) & 0xFF;
+    uiBuf[2] = (uiValue >> 8) & 0xFF;
+    uiBuf[3] = uiValue & 0xFF;
+}
+
+bool MP4SelfBuf::AddData(uint8_t* uiBuf, uint32_t uiSize)
+{//添加数据
+	if((m_uBufTotalSize - m_uBufSize) < uiSize)
+	{
+		#if 0
+		m_cBuf = (uint8_t*)MP4Realloc((uint8_t*)m_cBuf, SELFBUFSIZE+m_uBufTotalSize);
+		if(m_cBuf == NULL)
+		{
+	    	throw new Exception("malloc failed",__FILE__,__LINE__,__FUNCTION__);
+		}
+		m_uBufTotalSize += SELFBUFSIZE;
+		#else
+		uint8_t* pTmp = NULL;
+		pTmp = (uint8_t*)malloc(SELFBUFSIZE+m_uBufTotalSize);
+		if(pTmp == NULL)
+		{
+	    	throw new Exception("malloc failed for pTmp.",__FILE__,__LINE__,__FUNCTION__);
+		}
+		MP4File::m_ui32MallocCount++;
+
+		memcpy(pTmp, m_cBuf, m_uBufSize);
+		memcpy(pTmp+m_uBufSize, uiBuf, uiSize);
+		m_uBufTotalSize += SELFBUFSIZE;
+		free(m_cBuf);
+		m_cBuf = pTmp;
+		MP4File::m_ui32MallocCount--;
+		#endif
+	}
+	memcpy((uint8_t*)m_cBuf+m_uBufSize, uiBuf, uiSize);
+	m_uBufSize += uiSize;
+
+	#if 0
+	int mm = 0;
+	char* p = (char*)m_cBuf;
+	for(mm=0; mm<m_uBufSize;mm++){
+		printf("%02x ",p[mm]);
+	}
+	printf("\n");
+	#endif
+	
+	return true;
+}
+
+uint8_t* MP4SelfBuf::GetPacketData()
+{
+	if(NULL == m_cBuf)
+	{
+		return NULL;
+	}
+	m_uiSize = m_uBufSize;
+	WriteUint32((uint8_t*)m_cBuf+12, m_uiSize-12);
+
+	return m_cBuf;
+}
+
+//////////
+
+MP4Timestamp MP4File::m_createTime = 0;
+uint32_t MP4File::m_ui32MallocCount = 0;
 
 MP4File::MP4File( ) :
     m_file             ( NULL )
     , m_fileOriginalSize ( 0 )
     , m_createFlags      ( 0 )
+    , m_realtimeModeBeforeOpen ( 0 )
 {
     this->Init();
+}
+	
+MP4File::MP4File( uint32_t realimeMode ) :
+	m_file             ( NULL )
+	, m_fileOriginalSize ( 0 )
+	, m_createFlags      ( 0 )
+	, m_realtimeModeBeforeOpen (realimeMode)
+	, m_RealtimeStreamFun ( NULL )
+{
+	this->Init();
 }
 
 /**
  * Initialize member variables (shared among constructors)
  */
 void MP4File::Init()
-{
+{/*cwm mp4播放时被调用*/
     m_pRootAtom = NULL;
     m_odTrackId = MP4_INVALID_TRACK_ID;
 
@@ -66,6 +383,80 @@ void MP4File::Init()
     m_bufWriteBits = 0;
     m_editName = NULL;
     m_trakName[0] = '\0';
+
+	//////////
+
+	m_mulMdatMode = false;
+	m_ui64CurMdatSize = MP4_MDAT_SIZE;
+	m_ui64ActualMdatSize = 0;
+	m_IsThisTimes = true;
+	m_ui64ActualJudgeMdatSize = 8+(1?LARGE_FILE_SIZE:0);
+	m_mdatBuf = NULL;
+	m_mdatBufSize = 0;
+	m_encryptionFlag = false;
+	m_bAddFlag = false;
+	m_ui64FileTailSize = 1024*5;
+	m_bWriteVedioTrackFlag = true;
+	m_bVirtualFrameFlag = false;
+	m_bNormalVirtualFrameFlag = false;
+	m_NormalVirtualFramePos = 0;
+	m_VirtualFrameFillSize = 0;
+	m_VirtualFramePos = 0;
+	m_SelfBufSize = 1024*512;
+	m_ui64StartTime = getLocalTimeSeconds();;
+	m_ui64EndTime = m_ui64StartTime;
+	m_ui32DamgeBoxSize = 0;
+	m_eBoxType = MP4_DEFAULT;
+	m_ui64FrameCount = 0;
+	memcpy(m_cAudioType, "NONE", 5);
+
+	m_SelfBuf = NULL;
+	m_pFillData = NULL;
+	m_pVirtualMoovData = NULL;
+	m_uiSizeOfVirtualMoovData = 0;
+	m_MoovPos = 0;
+	m_RecordPos = 0;
+	m_Encryption = 0;
+	m_AudioEncode = 0;
+	m_IsCloseFlag = false;
+	m_SelfDataMode = 0;
+	m_IsHead = true;
+
+	if(m_realtimeModeBeforeOpen == 0)
+	{
+		return;
+	}
+
+	m_SelfBuf = (uint8_t*)malloc(m_SelfBufSize);
+	if(NULL == m_SelfBuf)
+	{
+        throw new Exception( "malloc memery for m_SelfBuf failed.\n",__FILE__,__LINE__,__FUNCTION__);
+	}
+	MP4File::m_ui32MallocCount++;
+
+	m_AdjournPos = 0;
+	m_ExeFreeTimes = 0;
+
+	m_pFillData = (uint8_t*)malloc(1024*1024);
+	if(NULL == m_pFillData)
+	{
+        throw new Exception( "malloc memery for m_SelfBuf failed.\n",__FILE__,__LINE__,__FUNCTION__);
+	}
+	MP4File::m_ui32MallocCount++;
+
+    memset(m_pFillData, 0, 1024*1024);
+
+	m_uiSizeOfVirtualMoovData = 1024*512;
+	m_pVirtualMoovData = (uint8_t*)malloc(m_uiSizeOfVirtualMoovData);
+	if(NULL == m_pVirtualMoovData)
+	{
+        throw new Exception( "malloc memery for m_SelfBuf failed.\n",__FILE__,__LINE__,__FUNCTION__);
+	}
+	MP4File::m_ui32MallocCount++;
+
+	//m_pPsData = NULL;
+	m_ui32PsDataSize = 0;
+	m_statusPs = 0;
 }
 
 MP4File::~MP4File()
@@ -75,6 +466,10 @@ MP4File::~MP4File()
         delete m_pTracks[i];
     MP4Free( m_memoryBuffer ); // just in case
     CHECK_AND_FREE( m_editName );
+    //MP4Free( m_mdatBuf );
+    MP4Free( m_SelfBuf );
+    MP4Free( m_pFillData );
+    MP4Free( m_pVirtualMoovData );
     delete m_file;
 }
 
@@ -92,9 +487,21 @@ MP4File::GetFilename() const
 
 void MP4File::Read( const char* name, const MP4FileProvider* provider )
 {
+	seconds_t t1 = getLocalTimeSeconds();
     Open( name, File::MODE_READ, provider );
     ReadFromFile();
     CacheProperties();
+	milliseconds_t t2 = getLocalTimeSeconds();
+	log.errorf("ReadFileTime=%llu.\n", t2-t1);
+}
+
+void* MP4File::DbgInfoFun(void* param)
+{
+	//while(1){
+	//	printf("-+-+>: m_ui32MallocCount = %u.\n", MP4File::m_ui32MallocCount);
+	//	//sleep(1);
+	//}
+	return NULL;
 }
 
 void MP4File::Create( const char* fileName,
@@ -119,16 +526,29 @@ void MP4File::Create( const char* fileName,
     }
 
     CacheProperties();
-
-    // create mdat, and insert it after ftyp, and before moov
-    (void)InsertChildAtom(m_pRootAtom, "mdat",
-                          add_ftyp != 0 ? 1 : 0);
+	
+	if(IsMulMdatMode())
+	{//do nothing
+	}
+	else
+	{
+        // create mdat, and insert it after ftyp, and before moov
+        (void)InsertChildAtom(m_pRootAtom, "mdat",
+                              add_ftyp != 0 ? 1 : 0);
+	}
 
     // start writing
     m_pRootAtom->BeginWrite();
-    if (add_iods != 0) {
+    if (add_iods != 0) 
+	{
         (void)AddChildAtom("moov", "iods");
     }
+	
+	log.errorf("start id=%p.\n", m_file);
+#if 0
+	pthread_t heartbeat_id;
+	pthread_create(&heartbeat_id, NULL, DbgInfoFun, (void*)this);
+#endif
 }
 
 bool MP4File::Use64Bits (const char *atomName)
@@ -288,8 +708,16 @@ void MP4File::Optimize( const char* srcFileName, const char* dstFileName )
         // optimized file destination
         Open( dname.c_str(), File::MODE_CREATE, NULL );
         dst = m_file;
+		
+		if(1)
+		{
+        	SetIntegerProperty( "moov.mvhd.modificationTime", GetAllCreateTime() );
+		}
+		else
+		{
+        	SetIntegerProperty( "moov.mvhd.modificationTime", MP4GetAbsTimestamp() );
+		}
 
-        SetIntegerProperty( "moov.mvhd.modificationTime", MP4GetAbsTimestamp() );
 
         // writing meta info in the optimal order
         ((MP4RootAtom*)m_pRootAtom)->BeginOptimalWrite();
@@ -391,26 +819,41 @@ void MP4File::Open( const char* name, File::Mode mode, const MP4FileProvider* pr
 {
     ASSERT( !m_file );
 
-    m_file = new File( name, mode, provider ? new io::CustomFileProvider( *provider ) : NULL );
-    if( m_file->open() ) {
+	if(GetRealTimeModeBeforeOpen() > MP4_NORMAL)
+	{
+    	m_file = new File( name, mode, provider ? new io::CustomFileProvider( *provider ) : NULL , 0);
+		SetRealTimeMode(GetRealTimeModeBeforeOpen());
+	}
+	else
+	{
+    	m_file = new File( name, mode, provider ? new io::CustomFileProvider( *provider ) : NULL );
+	}
+
+    if( m_file->open() ) 
+	{
         ostringstream msg;
         msg << "open(" << name << ") failed";
         throw new Exception( msg.str(), __FILE__, __LINE__, __FUNCTION__);
     }
 
-    switch( mode ) {
+    switch( mode ) 
+	{
         case File::MODE_READ:
         case File::MODE_MODIFY:
+		{
             m_fileOriginalSize = m_file->size;
             break;
+        }
 
         case File::MODE_CREATE:
         default:
+		{
             m_fileOriginalSize = 0;
             break;
+        }
     }
 }
-
+//cwm:读取mp4文件时,调用每个atom的构造函数
 void MP4File::ReadFromFile()
 {
     // ensure we start at beginning of file
@@ -425,6 +868,19 @@ void MP4File::ReadFromFile()
     m_pRootAtom->SetStart(0);
     m_pRootAtom->SetSize(fileSize);
     m_pRootAtom->SetEnd(fileSize);
+
+	uint64_t uiPos = 0;
+	uint64_t uiTmpPos = 0;
+    SetPosition(fileSize-8);
+	ReadBytes((uint8_t*)(&uiPos), 8);
+	uiTmpPos = uiPos;		
+    uint8_t* data = (uint8_t*)(&uiPos);
+    for (int i = 7; i >= 0; i--) {
+        data[i] = uiTmpPos & 0xFF;
+        uiTmpPos >>= 8;
+    }
+	m_MoovPos = uiPos;
+    SetPosition(0);
 
     m_pRootAtom->Read();
 
@@ -574,28 +1030,46 @@ void MP4File::FinishWrite(uint32_t options)
         m_pTracks[i]->FinishWrite(options);
     }
 
+#if 1
+	if(GetRealTimeModeBeforeOpen() >= MP4_ADD_INFO){
+		EndOldMdat();
+		bool bFlag = 0;
+		
+		if(1 == m_SelfDataMode){
+			WriteSelfData(2, &bFlag, 0);
+		}
+		else{
+			WriteSelfData(2, &bFlag);
+		}
+	}
+#endif
+	//WriteSelfData();
+
     // ask root atom to write
     m_pRootAtom->FinishWrite();
 
-    // finished all writes, if position < size then file has shrunk and
-    // we mark remaining bytes as free atom; otherwise trailing garbage remains.
-    if( GetPosition() < GetSize() ) {
-        MP4RootAtom* root = (MP4RootAtom*)FindAtom( "" );
-        ASSERT( root );
+	if(GetRealTimeMode() > MP4_NORMAL){
+	}else{
+	    // finished all writes, if position < size then file has shrunk and
+	    // we mark remaining bytes as free atom; otherwise trailing garbage remains.
+	    if( GetPosition() < GetSize() ) {
+	        MP4RootAtom* root = (MP4RootAtom*)FindAtom( "" );
+	        ASSERT( root );
 
-        // compute size of free atom; always has 8 bytes of overhead
-        uint64_t size = GetSize() - GetPosition();
-        if( size < 8 )
-            size = 0;
-        else
-            size -= 8;
+	        // compute size of free atom; always has 8 bytes of overhead
+	        uint64_t size = GetSize() - GetPosition();
+	        if( size < 8 )
+	            size = 0;
+	        else
+	            size -= 8;
 
-        MP4FreeAtom* freeAtom = (MP4FreeAtom*)MP4Atom::CreateAtom( *this, NULL, "free" );
-        ASSERT( freeAtom );
-        freeAtom->SetSize( size );
-        root->AddChildAtom( freeAtom );
-        freeAtom->Write();
-    }
+	        MP4FreeAtom* freeAtom = (MP4FreeAtom*)MP4Atom::CreateAtom( *this, NULL, "free" );
+	        ASSERT( freeAtom );
+	        freeAtom->SetSize( size );
+	        root->AddChildAtom( freeAtom );
+	        freeAtom->Write();
+	    }
+	}
 }
 
 void MP4File::UpdateDuration(MP4Duration duration)
@@ -614,12 +1088,86 @@ void MP4File::Dump( bool dumpImplicits )
 
 void MP4File::Close(uint32_t options)
 {
-    if( IsWriteMode() ) {
-        SetIntegerProperty( "moov.mvhd.modificationTime", MP4GetAbsTimestamp() );
+	m_IsCloseFlag = true;
+    if( IsWriteMode() ) {	
+		if(1)
+		{
+	        SetIntegerProperty( "moov.mvhd.modificationTime", GetAllCreateTime() );
+		}
+		else
+		{
+	        SetIntegerProperty( "moov.mvhd.modificationTime", MP4GetAbsTimestamp() );
+		}
         FinishWrite(options);
     }
 
+	if(GetRealTimeMode() > MP4_NORMAL){
+		if(NULL != m_RealtimeStreamFun){
+			uint8_t* pui8Data = NULL;
+			uint64_t pui64DataSize= 0;
+			GetRealTimeData(&pui8Data, &pui64DataSize);
+			if( (NULL != pui8Data) && (pui64DataSize > 0) )
+			{
+				uint32_t uiTmp = 0;
+				if(MP4_MOOV == m_eBoxType)
+				{
+					uiTmp = m_ui32DamgeBoxSize;
+				}
+				else if(MP4_FREE == m_eBoxType)
+				{
+					uiTmp = pui64DataSize-0x88+m_ui32DamgeBoxSize;
+				}
+				
+				m_RealtimeStreamFun((void*)(this), MP4_TAIL_FLAG, pui8Data+uiTmp, pui64DataSize-uiTmp);
+			}
+			m_ui64EndTime = getLocalTimeSeconds();
+			log.errorf("Mode=%u,FileSize=%llu,OriginalSize=%llu,MoovSize=%llu,CalcTailSize=%llu,TrackCount=%u,FrameCount=%llu,AVT=%s,UseTime=%llu.\n"
+				, GetRealTimeModeBeforeOpen(), GetTailPositonOfBuf(), m_file->size, pui64DataSize
+				, m_ui64FileTailSize, m_trakIds.Size(), m_ui64FrameCount, m_cAudioType
+				, m_ui64EndTime-m_ui64StartTime);
+		}
+		else{
+			uint8_t* pMdatData = NULL;
+			uint64_t uiMdatData = 0;
+			
+			uint8_t* realimeData = NULL;
+			uint64_t realimeDataSize = 0;
+			
+			GetRealTimeData(&pMdatData, &uiMdatData);
+
+			realimeData = (uint8_t*)malloc(uiMdatData+m_mdatBufSize);
+			if(NULL == realimeData){
+				log.errorf("uiMdatData=%llu, m_mdatBufSize=%llu.\n", uiMdatData, m_mdatBufSize);
+				throw new Exception( "error: Malloc memery for realimeData failed!\n", __FILE__, __LINE__, __FUNCTION__);
+			}
+			MP4File::m_ui32MallocCount++;
+
+			memcpy(realimeData, m_mdatBuf, m_mdatBufSize);
+			memcpy(realimeData+m_mdatBufSize, pMdatData, uiMdatData);
+			
+			realimeDataSize = m_mdatBufSize + uiMdatData;
+			
+			log.infof("MP4File::Close inner tail size=%llu,calc size=%llu, all size=%llu\n"
+			, uiMdatData, m_ui64FileTailSize, realimeDataSize);
+
+			if(m_ui64FileTailSize<uiMdatData){
+	        	throw new Exception( "error: calc size is error!\n", __FILE__, __LINE__, __FUNCTION__);
+			}
+
+			if(NULL != m_mdatBuf){
+				free(m_mdatBuf);
+				m_mdatBuf = NULL;
+				MP4File::m_ui32MallocCount--;
+			}
+				
+			m_mdatBuf = realimeData;
+			m_mdatBufSize = realimeDataSize;
+		}
+	}
+
+	log.errorf("end id=%p.\n", m_file);
     delete m_file;
+	log.errorf("delete m_file\n");
     m_file = NULL;
 }
 
@@ -1305,6 +1853,7 @@ MP4TrackId MP4File::AddAmrAudioTrack(
 
 MP4TrackId MP4File::AddULawAudioTrack(    uint32_t timeScale)
 {
+	memcpy(m_cAudioType, "Ulaw", 5);
     uint32_t fixedSampleDuration = (timeScale * 20)/1000; // 20mSec/Sample
 
     MP4TrackId trackId = AddTrack(MP4_AUDIO_TRACK_TYPE, timeScale);
@@ -1328,7 +1877,10 @@ MP4TrackId MP4File::AddULawAudioTrack(    uint32_t timeScale)
     SetTrackIntegerProperty(trackId,
                             "mdia.minf.stbl.stsd.ulaw.timeScale",
                             timeScale<<16);
-
+	SetTrackIntegerProperty(trackId,
+							"mdia.minf.stbl.stsd.ulaw.channels",
+							1);
+							
     m_pTracks[FindTrackIndex(trackId)]->SetFixedSampleDuration(fixedSampleDuration);
 
     return trackId;
@@ -1336,6 +1888,7 @@ MP4TrackId MP4File::AddULawAudioTrack(    uint32_t timeScale)
 
 MP4TrackId MP4File::AddALawAudioTrack(    uint32_t timeScale)
 {
+	memcpy(m_cAudioType, "Alaw", 5);
     uint32_t fixedSampleDuration = (timeScale * 20)/1000; // 20mSec/Sample
 
     MP4TrackId trackId = AddTrack(MP4_AUDIO_TRACK_TYPE, timeScale);
@@ -1359,6 +1912,9 @@ MP4TrackId MP4File::AddALawAudioTrack(    uint32_t timeScale)
     SetTrackIntegerProperty(trackId,
                             "mdia.minf.stbl.stsd.alaw.timeScale",
                             timeScale<<16);
+	SetTrackIntegerProperty(trackId,
+							"mdia.minf.stbl.stsd.alaw.channels",
+							1);
 
     m_pTracks[FindTrackIndex(trackId)]->SetFixedSampleDuration(fixedSampleDuration);
 
@@ -1370,6 +1926,14 @@ MP4TrackId MP4File::AddAudioTrack(
     MP4Duration sampleDuration,
     uint8_t audioType)
 {
+	if(MP4_MPEG2_AAC_LC_AUDIO_TYPE == audioType)
+	{
+		memcpy(m_cAudioType, "AAC0", 5);
+	}
+	else
+	{
+		memcpy(m_cAudioType, "WEIZ", 5);
+	}
     MP4TrackId trackId = AddTrack(MP4_AUDIO_TRACK_TYPE, timeScale);
 
     AddTrackToOd(trackId);
@@ -1800,6 +2364,449 @@ MP4TrackId MP4File::AddEncVideoTrack(uint32_t timeScale,
     return trackId;
 }
 
+
+//==============================================cwm
+MP4TrackId MP4File::ModH265VideoTrack(MP4TrackId trackId)
+{
+	//nt16_t width = 0;
+	//nt16_t height = 0;
+	uint8_t AVCProfileIndication = m_hvccData.m_hvcC_profile_space_tier_flag_profile_idc_1B;
+	uint32_t m_hvcC_profile_compatibility_flags_4B = m_hvccData.m_hvcC_profile_compatibility_flags_4B;
+	uint32_t m_hvcC_constraint_indicator_flags_4B = m_hvccData.m_hvcC_constraint_indicator_flags_4B;
+	uint16_t m_constraint_indicator_flags_2B = m_hvccData.m_hvcC_constraint_indicator_flags_2B;
+	uint8_t m_hvcC_level_idc_1B = m_hvccData.m_hvcC_level_idc_1B;
+	uint16_t m_hvcC_min_spatial_segmentation_idc_2B = m_hvccData.m_hvcC_min_spatial_segmentation_idc_2B;
+	uint8_t m_hvcC_parallelismType_1B = m_hvccData.m_hvcC_parallelismType_1B;
+	uint8_t m_hvcC_chromaFormat_1B = m_hvccData.m_hvcC_chromaFormat_1B;
+	uint8_t m_hvcC_bitDepthLumaMinus8_1B= m_hvccData.m_hvcC_bitDepthLumaMinus8_1B;
+	uint8_t m_hvcC_bitDepthChromaMinus8_1B = m_hvccData.m_hvcC_bitDepthChromaMinus8_1B;
+	uint16_t m_hvcC_avgFrameRate_2B = m_hvccData.m_hvcC_avgFrameRate_2B;
+	uint8_t sampleLenFieldSizeMinusOne = m_hvccData.m_hvcC_constantFrameRate_numTemporalLayers_temporalIdNested_lengthSizeMinusOne_1B;
+	uint8_t m_hvcC_numOfArrays_1B = m_hvccData.m_hvcC_numOfArrays_1B;
+	
+	//tTrackIntegerProperty(trackId,
+	//				"mdia.minf.stbl.stsd.hev1.width", width);
+	//tTrackIntegerProperty(trackId,
+	//				"mdia.minf.stbl.stsd.hev1.height", height);
+
+	SetTrackIntegerProperty(trackId,
+							"mdia.minf.stbl.stsd.hev1.hvcC.AVCProfileIndication",
+							AVCProfileIndication);
+	SetTrackIntegerProperty(trackId,
+							"mdia.minf.stbl.stsd.hev1.hvcC.profile_compatibility",
+							m_hvcC_profile_compatibility_flags_4B);
+	SetTrackIntegerProperty(trackId,
+							"mdia.minf.stbl.stsd.hev1.hvcC.AVCLevelIndication",
+							m_hvcC_constraint_indicator_flags_4B);
+
+	SetTrackIntegerProperty(trackId,
+							"mdia.minf.stbl.stsd.hev1.hvcC.m_constraint_indicator_flags_2B",
+							m_constraint_indicator_flags_2B);
+	SetTrackIntegerProperty(trackId,
+							"mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_level_idc_1B",
+							m_hvcC_level_idc_1B);
+	SetTrackIntegerProperty(trackId,
+							"mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_min_spatial_segmentation_idc_2B",
+							m_hvcC_min_spatial_segmentation_idc_2B);
+	SetTrackIntegerProperty(trackId,
+							"mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_parallelismType_1B",
+							m_hvcC_parallelismType_1B);
+	SetTrackIntegerProperty(trackId,
+							"mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_chromaFormat_1B",
+							m_hvcC_chromaFormat_1B);
+	SetTrackIntegerProperty(trackId,
+							"mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_bitDepthLumaMinus8_1B",
+							m_hvcC_bitDepthLumaMinus8_1B);
+	SetTrackIntegerProperty(trackId,
+							"mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_bitDepthChromaMinus8_1B",
+							m_hvcC_bitDepthChromaMinus8_1B);
+	SetTrackIntegerProperty(trackId,
+							"mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_avgFrameRate_2B",
+							m_hvcC_avgFrameRate_2B);
+
+	SetTrackIntegerProperty(trackId,
+							"mdia.minf.stbl.stsd.hev1.hvcC.lengthSizeMinusOne",
+							sampleLenFieldSizeMinusOne);
+	SetTrackIntegerProperty(trackId,
+							"mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_numOfArrays_1B",
+							m_hvcC_numOfArrays_1B);
+	
+	return trackId;
+}
+
+
+MP4TrackId MP4File::AddH265VideoTrack(
+    uint32_t timeScale,
+    MP4Duration sampleDuration,
+    uint16_t width,
+    uint16_t height,
+    uint8_t AVCProfileIndication,
+    uint8_t profile_compat,
+    uint8_t AVCLevelIndication,
+    uint8_t sampleLenFieldSizeMinusOne)
+{
+    MP4TrackId trackId = AddVideoTrackDefault(timeScale,
+                         sampleDuration,
+                         width,
+                         height,
+                         "hev1");
+	
+#if 1 //cwm
+
+	AVCProfileIndication = 0x01;
+	uint32_t m_hvcC_profile_compatibility_flags_4B = 0x60000000;//0x60000000
+	uint32_t m_hvcC_constraint_indicator_flags_4B = 0xb0000000;//0xb0000000
+	uint16_t m_constraint_indicator_flags_2B = 0x0000;
+	uint8_t m_hvcC_level_idc_1B = 0x5d;//0x5d
+	uint16_t m_hvcC_min_spatial_segmentation_idc_2B = 0xf000;//0xf000
+	uint8_t m_hvcC_parallelismType_1B = 0xfc;//0xfc
+	uint8_t m_hvcC_chromaFormat_1B = 0xfd;//0xfd
+	uint8_t m_hvcC_bitDepthLumaMinus8_1B= 0xf8;//0xf8
+	uint8_t m_hvcC_bitDepthChromaMinus8_1B = 0xf8;//0xf8
+	uint16_t m_hvcC_avgFrameRate_2B = 0x0000;
+	sampleLenFieldSizeMinusOne = 0x0f;//0x0f
+	uint8_t m_hvcC_numOfArrays_1B = 0x03;//0x03
+	
+    SetTrackIntegerProperty(trackId,
+                            "mdia.minf.stbl.stsd.hev1.width", width);
+    SetTrackIntegerProperty(trackId,
+                            "mdia.minf.stbl.stsd.hev1.height", height);
+
+    SetTrackIntegerProperty(trackId,
+                            "mdia.minf.stbl.stsd.hev1.hvcC.AVCProfileIndication",
+                            AVCProfileIndication);
+    SetTrackIntegerProperty(trackId,
+                            "mdia.minf.stbl.stsd.hev1.hvcC.profile_compatibility",
+                            m_hvcC_profile_compatibility_flags_4B);
+    SetTrackIntegerProperty(trackId,
+                            "mdia.minf.stbl.stsd.hev1.hvcC.AVCLevelIndication",
+                            m_hvcC_constraint_indicator_flags_4B);
+	#if 1 //cwm 2398
+
+    SetTrackIntegerProperty(trackId,
+                            "mdia.minf.stbl.stsd.hev1.hvcC.m_constraint_indicator_flags_2B",
+                            m_constraint_indicator_flags_2B);
+    SetTrackIntegerProperty(trackId,
+                            "mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_level_idc_1B",
+                            m_hvcC_level_idc_1B);
+    SetTrackIntegerProperty(trackId,
+                            "mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_min_spatial_segmentation_idc_2B",
+                            m_hvcC_min_spatial_segmentation_idc_2B);
+    SetTrackIntegerProperty(trackId,
+                            "mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_parallelismType_1B",
+                            m_hvcC_parallelismType_1B);
+    SetTrackIntegerProperty(trackId,
+                            "mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_chromaFormat_1B",
+                            m_hvcC_chromaFormat_1B);
+    SetTrackIntegerProperty(trackId,
+                            "mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_bitDepthLumaMinus8_1B",
+                            m_hvcC_bitDepthLumaMinus8_1B);
+    SetTrackIntegerProperty(trackId,
+                            "mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_bitDepthChromaMinus8_1B",
+                            m_hvcC_bitDepthChromaMinus8_1B);
+    SetTrackIntegerProperty(trackId,
+                            "mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_avgFrameRate_2B",
+                            m_hvcC_avgFrameRate_2B);
+
+	#endif //cwm 2398
+    SetTrackIntegerProperty(trackId,
+                            "mdia.minf.stbl.stsd.hev1.hvcC.lengthSizeMinusOne",
+                            sampleLenFieldSizeMinusOne);
+    SetTrackIntegerProperty(trackId,
+                            "mdia.minf.stbl.stsd.hev1.hvcC.m_hvcC_numOfArrays_1B",
+                            m_hvcC_numOfArrays_1B);
+	
+#endif //cwm
+    return trackId;
+}
+
+
+MP4TrackId MP4File::AddEncH265VideoTrack(
+    uint32_t timeScale,
+    MP4Duration sampleDuration,
+    uint16_t width,
+    uint16_t height,
+    MP4Atom *srcAtom,
+    mp4v2_ismacrypParams *icPp)
+
+{
+
+    uint32_t original_fmt = 0;
+    MP4Atom *hvcCAtom;
+
+    MP4TrackId trackId = AddVideoTrackDefault(timeScale,
+                         sampleDuration,
+                         width,
+                         height,
+                         "encv");
+
+    SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.encv.width", width);
+    SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.encv.height", height);
+
+    (void)AddChildAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.encv"), "hvcC");
+
+    // create default values
+    hvcCAtom = FindAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.encv.hvcC"));
+
+    // export source atom
+    ((MP4HvcCAtom *) srcAtom)->Clone((MP4HvcCAtom *)hvcCAtom);
+
+    /* set all the ismacryp-specific values */
+
+    (void)AddChildAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.encv.sinf"), "schm");
+    (void)AddChildAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.encv.sinf"), "schi");
+    (void)AddChildAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.encv.sinf.schi"), "iKMS");
+    (void)AddChildAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.encv.sinf.schi"), "iSFM");
+
+    // per ismacrypt E&A V1.1 section 9.1.2.1 'hev1' is renamed '264b'
+    // hev1 must not appear as a sample entry name or original format name
+    original_fmt = ATOMID("264b");
+    SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.encv.sinf.frma.data-format",
+                            original_fmt);
+
+    SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.encv.sinf.schm.scheme_type",
+                            icPp->scheme_type);
+
+    SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.encv.sinf.schm.scheme_version",
+                            icPp->scheme_version);
+
+    SetTrackStringProperty(trackId, "mdia.minf.stbl.stsd.encv.sinf.schi.iKMS.kms_URI",
+                           icPp->kms_uri);
+
+    SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.encv.sinf.schi.iSFM.selective-encryption",
+                            icPp->selective_enc);
+
+    SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.encv.sinf.schi.iSFM.key-indicator-length",
+                            icPp->key_ind_len);
+
+    SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.encv.sinf.schi.iSFM.IV-length",
+                            icPp->iv_len);
+
+
+    return trackId;
+}
+
+ void MP4File::AddH265VideoParameterSet (MP4TrackId trackId,
+        const uint8_t *pVideo,
+        uint16_t videoLen)
+{
+    const char *format;
+    MP4Atom *hvcCAtom;
+
+    // get 4cc media format - can be hev1 or encv for ismacrypted track
+    format = GetTrackMediaDataName(trackId);
+
+    if (!strcasecmp(format, "hev1"))
+        hvcCAtom = FindAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.hev1.hvcC"));
+    else if (!strcasecmp(format, "encv"))
+        hvcCAtom = FindAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.encv.hvcC"));
+    else
+        // huh?  unknown track format
+        return;
+
+
+    MP4BitfieldProperty *pCount;
+    MP4Integer16Property *pLength;
+    MP4BytesProperty *pUnit;
+    if ((hvcCAtom->FindProperty("hvcC.numOfVideoParameterSets",
+                                (MP4Property **)&pCount) == false) ||
+            (hvcCAtom->FindProperty("hvcC.videoEntries.videoParameterSetLength",
+                                    (MP4Property **)&pLength) == false) ||
+            (hvcCAtom->FindProperty("hvcC.videoEntries.videoParameterSetNALUnit",
+                                    (MP4Property **)&pUnit) == false)) {
+        log.errorf("%s: \"%s\": Could not find hvcC properties",
+                   __FUNCTION__, GetFilename().c_str() );
+        return;
+    }
+    uint32_t count = pCount->GetValue();
+
+    if (count > 0) {
+        // see if we already exist
+        for (uint32_t index = 0; index < count; index++) {
+            if (pLength->GetValue(index) == videoLen) {
+                uint8_t *seq;
+                uint32_t seqlen;
+                pUnit->GetValue(&seq, &seqlen, index);
+                if (memcmp(seq, pVideo, videoLen) == 0) {
+                    free(seq);
+                    return;
+                }
+                free(seq);
+            }
+        }
+    }
+    SetTrackIntegerProperty(trackId,
+                            "mdia.minf.stbl.stsd.hev1.hvcC.typeOfVideoParameterSets",
+                            0x20);
+    pLength->AddValue(videoLen);
+    pUnit->AddValue(pVideo, videoLen);
+    pCount->IncrementValue();
+	
+	
+	uint8_t *data = NULL; 
+	data = (uint8_t *)malloc(videoLen);
+	if(NULL != data)
+	{ 
+		memcpy(data, pVideo, videoLen);
+		mov_hvcc_add_nal_unit(data, videoLen, &m_hvccDecoder);
+		m_vpsCount ++;
+		if((m_vpsCount > 0) && (m_spsCount > 0) && (m_vpsCount > 0))
+		{
+			mov_assm_hvcc_data(&m_hvccDecoder, &m_hvccData);
+			ModH265VideoTrack(trackId);
+		}
+		free(data);
+		data = NULL;
+	}
+	
+    return;
+}
+
+
+void MP4File::AddH265SequenceParameterSet (MP4TrackId trackId,
+        const uint8_t *pSequence,
+        uint16_t sequenceLen)
+{
+    const char *format;
+    MP4Atom *hvcCAtom;
+
+    // get 4cc media format - can be hev1 or encv for ismacrypted track
+    format = GetTrackMediaDataName(trackId);
+
+    if (!strcasecmp(format, "hev1"))
+        hvcCAtom = FindAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.hev1.hvcC"));
+    else if (!strcasecmp(format, "encv"))
+        hvcCAtom = FindAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.encv.hvcC"));
+    else
+        // huh?  unknown track format
+        return;
+
+
+    MP4BitfieldProperty *pCount;
+    MP4Integer16Property *pLength;
+    MP4BytesProperty *pUnit;
+    if ((hvcCAtom->FindProperty("hvcC.numOfSequenceParameterSets",
+                                (MP4Property **)&pCount) == false) ||
+            (hvcCAtom->FindProperty("hvcC.sequenceEntries.sequenceParameterSetLength",
+                                    (MP4Property **)&pLength) == false) ||
+            (hvcCAtom->FindProperty("hvcC.sequenceEntries.sequenceParameterSetNALUnit",
+                                    (MP4Property **)&pUnit) == false)) {
+        log.errorf("%s: \"%s\": Could not find hvcC properties",
+                   __FUNCTION__, GetFilename().c_str() );
+        return;
+    }
+    uint32_t count = pCount->GetValue();
+
+    if (count > 0) {
+        // see if we already exist
+        for (uint32_t index = 0; index < count; index++) {
+            if (pLength->GetValue(index) == sequenceLen) {
+                uint8_t *seq;
+                uint32_t seqlen;
+                pUnit->GetValue(&seq, &seqlen, index);
+                if (memcmp(seq, pSequence, sequenceLen) == 0) {
+                    free(seq);
+                    return;
+                }
+                free(seq);
+            }
+        }
+    }
+    SetTrackIntegerProperty(trackId,
+                            "mdia.minf.stbl.stsd.hev1.hvcC.typeOfSequenceParameterSets",
+                            0x21);
+    pLength->AddValue(sequenceLen);
+    pUnit->AddValue(pSequence, sequenceLen);
+    pCount->IncrementValue();
+
+	
+	uint8_t *data = NULL; 
+	data = (uint8_t *)malloc(sequenceLen);
+	if(NULL != data)
+	{ 
+		memcpy(data, pSequence, sequenceLen);
+		mov_hvcc_add_nal_unit(data, sequenceLen, &m_hvccDecoder);
+		m_spsCount ++;
+		if((m_vpsCount > 0) && (m_spsCount > 0) && (m_vpsCount > 0))
+		{
+			mov_assm_hvcc_data(&m_hvccDecoder, &m_hvccData);
+			ModH265VideoTrack(trackId);
+		}
+		free(data);
+		data = NULL;
+	}
+
+    return;
+}
+void MP4File::AddH265PictureParameterSet (MP4TrackId trackId,
+        const uint8_t *pPict,
+        uint16_t pictLen)
+{
+    MP4Atom *hvcCAtom =
+        FindAtom(MakeTrackName(trackId,
+                               "mdia.minf.stbl.stsd.hev1.hvcC"));
+    MP4Integer8Property *pCount;
+    MP4Integer16Property *pLength;
+    MP4BytesProperty *pUnit;
+    if ((hvcCAtom->FindProperty("hvcC.numOfPictureParameterSets",
+                                (MP4Property **)&pCount) == false) ||
+            (hvcCAtom->FindProperty("hvcC.pictureEntries.pictureParameterSetLength",
+                                    (MP4Property **)&pLength) == false) ||
+            (hvcCAtom->FindProperty("hvcC.pictureEntries.pictureParameterSetNALUnit",
+                                    (MP4Property **)&pUnit) == false)) {
+        log.errorf("%s: \"%s\": Could not find hvcC picture table properties",
+                   __FUNCTION__, GetFilename().c_str());
+        return;
+    }
+
+    ASSERT(pCount);
+    uint32_t count = pCount->GetValue();
+
+    if (count > 0) {
+        // see if we already exist
+        for (uint32_t index = 0; index < count; index++) {
+            if (pLength->GetValue(index) == pictLen) {
+                uint8_t *seq;
+                uint32_t seqlen;
+                pUnit->GetValue(&seq, &seqlen, index);
+                if (memcmp(seq, pPict, pictLen) == 0) {
+                    log.verbose1f("\"%s\": picture matches %d", 
+                                  GetFilename().c_str(), index);
+                    free(seq);
+                    return;
+                }
+                free(seq);
+            }
+        }
+    }
+    SetTrackIntegerProperty(trackId,
+                            "mdia.minf.stbl.stsd.hev1.hvcC.typeOfPictureParameterSets",
+                            0x22);
+    pLength->AddValue(pictLen);
+    pUnit->AddValue(pPict, pictLen);
+    pCount->IncrementValue();
+    log.verbose1f("\"%s\": new picture added %d", GetFilename().c_str(),
+                  pCount->GetValue());
+
+	uint8_t *data = NULL; 
+	data = (uint8_t *)malloc(pictLen);
+	if(NULL != data)
+	{ 
+		memcpy(data, pPict, pictLen);
+		mov_hvcc_add_nal_unit(data, pictLen, &m_hvccDecoder);
+		m_ppsCount ++;
+		if((m_vpsCount > 0) && (m_spsCount > 0) && (m_vpsCount > 0))
+		{
+			mov_assm_hvcc_data(&m_hvccDecoder, &m_hvccData);
+			ModH265VideoTrack(trackId);
+		}
+		free(data);
+		data = NULL;
+	}
+
+    return;
+}
+//==============================================cwm
 MP4TrackId MP4File::AddH264VideoTrack(
     uint32_t timeScale,
     MP4Duration sampleDuration,
@@ -2280,6 +3287,12 @@ MP4TrackId MP4File::AddPixelAspectRatio(MP4TrackId trackId, uint32_t hSpacing, u
         SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.avc1.pasp.hSpacing", hSpacing);
         SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.avc1.pasp.vSpacing", vSpacing);
     }
+	else if (!strcasecmp(format, "hev1"))//cwm
+    {
+        (void)AddChildAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.hev1"), "pasp");
+        SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.hev1.pasp.hSpacing", hSpacing);
+        SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.hev1.pasp.vSpacing", vSpacing);
+    }
     else if (!strcasecmp(format, "mp4v"))
     {
         (void)AddChildAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.mp4v"), "pasp");
@@ -2305,6 +3318,13 @@ MP4TrackId MP4File::AddColr(MP4TrackId trackId,
         SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.avc1.colr.primariesIndex", primariesIndex);
         SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.avc1.colr.transferFunctionIndex", transferFunctionIndex);
         SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.avc1.colr.matrixIndex", matrixIndex);
+    }
+	else  if (!strcasecmp(format, "hev1"))//cwm
+    {
+        AddChildAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.hev1"), "colr");
+        SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.hev1.colr.primariesIndex", primariesIndex);
+        SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.hev1.colr.transferFunctionIndex", transferFunctionIndex);
+        SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.hev1.colr.matrixIndex", matrixIndex);
     }
     else if (!strcasecmp(format, "mp4v"))
     {
@@ -2928,7 +3948,9 @@ MP4TrackId MP4File::FindTrackId(uint16_t trackIndex,
 uint16_t MP4File::FindTrackIndex(MP4TrackId trackId)
 {
     for (uint32_t i = 0; i < m_pTracks.Size() && i <= 0xFFFF; i++) {
+		//PrintInfo("i=%d, m_pTracks[i]->GetId()=%d m_pTracks.Size()=%d", i, m_pTracks[i]->GetId(), m_pTracks.Size());
         if (m_pTracks[i]->GetId() == trackId) {
+		//PrintInfo("i=%d, m_pTracks[i]->GetId()=%d m_pTracks.Size()=%d", i, m_pTracks[i]->GetId(), m_pTracks.Size());
             return (uint16_t)i;
         }
     }
@@ -2936,6 +3958,7 @@ uint16_t MP4File::FindTrackIndex(MP4TrackId trackId)
     ostringstream msg;
     msg << "Track id " << trackId << " doesn't exist";
     throw new Exception(msg.str(),__FILE__, __LINE__, __FUNCTION__);
+	//PrintInfo("===========================================");
     return (uint16_t)-1; // satisfy MS compiler
 }
 
@@ -3014,7 +4037,10 @@ void MP4File::ReadSample(
     bool*         hasDependencyFlags,
     uint32_t*     dependencyFlags )
 {
-    m_pTracks[FindTrackIndex(trackId)]->ReadSample(
+	uint32_t index = FindTrackIndex(trackId);
+	PrintInfo("index=%d", index);
+	//mp4track.cpp MP4Track::ReadSample;
+    m_pTracks[index]->ReadSample(
         sampleId,
         ppBytes,
         pNumBytes,
@@ -3026,6 +4052,7 @@ void MP4File::ReadSample(
         dependencyFlags );
 }
 
+#if 0
 void MP4File::WriteSample(
     MP4TrackId     trackId,
     const uint8_t* pBytes,
@@ -3035,10 +4062,808 @@ void MP4File::WriteSample(
     bool           isSyncSample )
 {
     ProtectWriteOperation(__FILE__, __LINE__, __FUNCTION__);
-    m_pTracks[FindTrackIndex(trackId)]->WriteSample(
-        pBytes, numBytes, duration, renderingOffset, isSyncSample );
-    m_pModificationProperty->SetValue( MP4GetAbsTimestamp() );
+
+#if 1
+    if(IsMulMdatMode())
+	{
+		if(m_IsThisTimes)
+		{
+			if(GetRealTimeMode() >= MP4_ADD_INFO)
+			{	
+				#if 1
+				uint64_t ui64TmpMdatSize = 0;
+				ui64TmpMdatSize = GetMdatSize();
+				bool bIsAddFlag = false;
+				unsigned char ucType[5] = {0};
+				CFDNode *pNode = NULL;
+				uint32_t uiPos = 0;
+
+				bool bFirstRecordType = true;
+				//printf("****------------------------------m_UserDefineData.m_iCount=%d\n",m_UserDefineData.m_iCount);
+				if(m_UserDefineData.m_iCount > 0)
+				{
+					uint8_t* pTmpBuf = NULL;
+					uint8_t* pTmp24Buf = NULL;
+					pTmpBuf = (uint8_t*)malloc(sizeof(CFDNode)+128);
+					pTmp24Buf = pTmpBuf+12;
+
+					int iPos = 0;
+					
+					pNode = m_UserDefineData.PopNode();
+						
+					if(NULL != pNode)
+					{
+						if(   (pNode->m_pData->m_ucType[0] == 'v')
+							&&(pNode->m_pData->m_ucType[1] == 'd')
+							&&(pNode->m_pData->m_ucType[2] == 't')
+							&&(pNode->m_pData->m_ucType[3] == 't')
+							)
+						{
+							int iPos = 0;
+						
+							memcpy(pTmp24Buf, pNode->m_pData, pNode->m_pData->m_uiSize);
+							//
+							iPos = 0;
+							memcpy(pTmpBuf+iPos, SELF_DEFINE_FLAG, 8);
+							iPos += 8;
+							WriteUint32((uint8_t*)(pTmpBuf+iPos), SELF_VERSION);
+							iPos += 4;
+							WriteUint32((uint8_t*)(pTmpBuf+iPos), pNode->m_pData->m_uiSize);
+							iPos += 4;
+							memcpy((uint8_t*)(pTmpBuf+iPos), "vdtt", 4);
+							iPos += 4;
+							WriteUint32((uint8_t*)(pTmpBuf+iPos), pNode->m_pData->m_uiMemSize);
+							iPos += 4;
+							
+							SetMdatSize(pNode->m_pData->m_uiSize + 12 + 8);
+							
+							printf("line:%d.---StartNewMdat-----------ucType=%s.membersize=%u.\n", __LINE__
+								,ucType, pNode->m_pData->m_uiMemSize);
+							
+				            (void)InsertChildAtom(m_pRootAtom, "mdat",1);
+							m_pRootAtom->FirstWriteMdat();
+
+							WriteBytes(pTmpBuf,pNode->m_pData->m_uiSize + 12);
+
+							m_bAddFlag = true;
+						    EndOldMdat();
+							SetMdatSize(ui64TmpMdatSize);
+							StartNewMdat();
+							bIsAddFlag = true;
+						
+						}
+						else
+						{
+							printf("line:%d......................................\n", __LINE__);
+							(void)InsertChildAtom(m_pRootAtom, "mdat",1);
+							m_pRootAtom->FirstWriteMdat();
+						}
+						
+						if(NULL != pTmpBuf)
+						{
+							free(pTmpBuf);
+							pTmpBuf = NULL;
+						}
+						if(NULL != pNode)
+						{
+							delete(pNode);
+							pTmpBuf = NULL;
+						}
+						m_IsThisTimes = false;
+					}
+					
+				}
+				else
+				{
+		            (void)InsertChildAtom(m_pRootAtom, "mdat",1);
+					m_pRootAtom->FirstWriteMdat();
+				    m_IsThisTimes = false;
+					RecordAllBufNonius();
+				}
+				
+				#else
+				uint64_t ui64TmpMdatSize = 0;
+				ui64TmpMdatSize = GetMdatSize();
+				bool bIsAddFlag = false;
+				if(m_videoTrackInfo.m_uBufSize > 0)
+				{
+					SetMdatSize(m_videoTrackInfo.m_uBufSize+8);
+		            (void)InsertChildAtom(m_pRootAtom, "mdat",1);
+					m_pRootAtom->FirstWriteMdat();
+				    m_IsThisTimes = false;
+					RecordAllBufNonius();
+
+					WriteBytes(m_videoTrackInfo.GetPacketData(),m_videoTrackInfo.m_uBufSize);
+					m_videoTrackInfo.ResetData();
+					m_bAddFlag = true;
+				    EndOldMdat();
+					bIsAddFlag = true;
+				}
+				if(m_audioTrackInfo.m_uBufSize > 0)
+				{
+					SetMdatSize(m_audioTrackInfo.m_uBufSize+8);
+					StartNewMdat();
+					WriteBytes(m_audioTrackInfo.GetPacketData(),m_audioTrackInfo.m_uBufSize);
+					m_audioTrackInfo.ResetData();
+					m_bAddFlag = true;
+				    EndOldMdat();
+				}
+				if(m_virtualFrame.m_uBufSize > 0)
+				{
+					SetMdatSize(m_virtualFrame.m_uBufSize+8);
+					StartNewMdat();
+					WriteBytes(m_virtualFrame.GetPacketData(),m_virtualFrame.m_uBufSize);
+					m_virtualFrame.ResetData();
+					m_bAddFlag = true;
+				    EndOldMdat();
+				}
+				if(m_avSamepleInfo.m_uBufSize > 0)
+				{
+					SetMdatSize(m_avSamepleInfo.m_uBufSize+8);
+					StartNewMdat();
+					WriteBytes(m_avSamepleInfo.GetPacketData(),m_avSamepleInfo.m_uBufSize);
+					m_avSamepleInfo.ResetData();
+					m_bAddFlag = true;
+				    EndOldMdat();
+				}
+				if(bIsAddFlag)
+				{
+					SetMdatSize(ui64TmpMdatSize);
+					StartNewMdat();
+				}
+				else
+				{
+		            (void)InsertChildAtom(m_pRootAtom, "mdat",1);
+					m_pRootAtom->FirstWriteMdat();
+				    m_IsThisTimes = false;
+					RecordAllBufNonius();
+				}
+				#endif
+			}
+			else
+			{
+	            (void)InsertChildAtom(m_pRootAtom, "mdat",1);
+				m_pRootAtom->FirstWriteMdat();
+			    m_IsThisTimes = false;
+				RecordAllBufNonius();
+			}
+		}
+	}
+	
+    if(IsMulMdatMode())
+	{
+		if(GetRealTimeMode() >= MP4_ADD_INFO)
+		{	
+		#if 1
+			uint64_t ui64TmpMdatSize = 0;
+			ui64TmpMdatSize = GetMdatSize();
+			bool bIsAddFlag = false;
+			bool bIsFinishAddFlag = false;
+			if(m_ui64ActualJudgeMdatSize + (1==renderingOffset?numBytes-7:numBytes) > m_ui64CurMdatSize)
+			{
+				m_ui64ActualJudgeMdatSize = 8;
+	            EndOldMdat();
+				
+				unsigned char ucType[5] = {0};
+				CFDNode *pNode = NULL;
+				uint32_t uiPos = 0;
+
+				bool bFirstRecordType = true;
+				if((m_UserDefineData.m_iCount > 0))// && (m_VirtualFrameFillSize<=0))
+				{
+					uint8_t* pTmpBuf = NULL;
+					uint8_t* pTmp24Buf = NULL;
+					pTmpBuf = (uint8_t*)malloc(1024*1024*2);
+					pTmp24Buf = pTmpBuf+24;
+					uint32_t iMemSize = 0;
+					
+					pNode = m_UserDefineData.PopNode();
+						
+					while(NULL != pNode)
+					{
+						bIsFinishAddFlag = false;
+						if(bFirstRecordType)
+						{
+							memcpy(ucType, pNode->m_pData->m_ucType, 4);
+							bFirstRecordType = false;
+						}
+
+						if( (pNode->m_pData->m_ucType[0] == ucType[0])
+							&&(pNode->m_pData->m_ucType[1] == ucType[1])
+							&&(pNode->m_pData->m_ucType[2] == ucType[2])
+							&&(pNode->m_pData->m_ucType[3] == ucType[3])
+							)
+						{
+							memcpy(pTmp24Buf+uiPos, pNode->m_pData->m_pUserData, pNode->m_pData->m_uiSize - sizeof(BUnit));
+							uiPos += pNode->m_pData->m_uiSize - sizeof(BUnit);
+							iMemSize = pNode->m_pData->m_uiMemSize;
+							bIsFinishAddFlag = true;
+						}
+						else if(  (ucType[0] == 'a')
+								&&(ucType[1] == 'v')
+								&&(ucType[2] == 's')
+								&&(ucType[3] == 't') 
+						)
+						{
+							int iPos = 0;
+							iPos = 0;
+							memcpy(pTmpBuf+iPos, SELF_DEFINE_FLAG, 8);
+							iPos += 8;
+							WriteUint32((uint8_t*)(pTmpBuf+iPos), SELF_VERSION);
+							iPos += 4;
+							WriteUint32((uint8_t*)(pTmpBuf+iPos), sizeof(BUnit)+uiPos);
+							iPos += 4;
+							memcpy((uint8_t*)(pTmpBuf+iPos), ucType, 4);
+							iPos += 4;
+							WriteUint32((uint8_t*)(pTmpBuf+iPos), iMemSize);
+							iPos += 4;
+							
+							SetMdatSize(sizeof(BUnit)+uiPos+8+12);
+
+							printf("line:%d.---StartNewMdat-----------ucType=%s.membersize=%u.\n", __LINE__
+								,ucType, iMemSize);
+
+							StartNewMdat();
+							WriteBytes(pTmpBuf, sizeof(BUnit)+uiPos+12);
+							
+							m_bAddFlag = true;
+						    EndOldMdat();
+							bIsAddFlag = true;
+
+
+#if 1 //debug
+							typedef struct
+							{
+								unsigned int uiSampleSize;      /* 大小*/
+								unsigned long long sampleDuration;/* 持续刻度*/
+							}__attribute__((packed))TSizeAndDuring;
+							typedef struct
+							{
+								int uiIFrameFlag;
+								TSizeAndDuring VideoInfo;    /*视频信息*/
+							}__attribute__((packed))TVedioSampleInfo;
+
+							
+							printf("line:%d. --- uiPos/sizeof(TVedioSampleInfo)=%u/%d=%f.\n",__LINE__, uiPos, sizeof(TVedioSampleInfo)
+								,(double)uiPos/(double)sizeof(TVedioSampleInfo));
+								
+							int iDebug = 0;
+							TVedioSampleInfo* pstInfo = (TVedioSampleInfo*)pTmp24Buf;
+							for( ;iDebug<uiPos/sizeof(TVedioSampleInfo); iDebug++)
+							{
+								printf("*()* uiIFrameFlag=%d,",pstInfo[iDebug].uiIFrameFlag);
+								printf("uiSampleSize=%u\n",pstInfo[iDebug].VideoInfo.uiSampleSize);
+							}
+							
+#endif
+
+							{//start	
+								uiPos = 0;
+								memcpy(ucType, pNode->m_pData->m_ucType, 4);
+								printf("line:%d.--->change new type.%s.\n", __LINE__, ucType);
+								
+								memcpy(pTmp24Buf+uiPos, pNode->m_pData->m_pUserData, pNode->m_pData->m_uiSize - sizeof(BUnit));
+								uiPos += pNode->m_pData->m_uiSize - sizeof(BUnit);
+								iMemSize = pNode->m_pData->m_uiMemSize;
+								bIsFinishAddFlag = true;
+							}//end
+						}
+						else if(  (ucType[0] == 'v')
+								&&(ucType[1] == 'm')
+								&&(ucType[2] == 'f')
+								&&(ucType[3] == 't')
+						)
+						{			
+							int iPos = 0;
+							
+							iPos = 0;
+							memcpy(pTmpBuf+iPos, SELF_DEFINE_FLAG, 8);
+							iPos += 8;
+							WriteUint32((uint8_t*)(pTmpBuf+iPos), SELF_VERSION);
+							iPos += 4;
+							WriteUint32((uint8_t*)(pTmpBuf+iPos), sizeof(BUnit)+uiPos);
+							iPos += 4;
+							memcpy((uint8_t*)(pTmpBuf+iPos), ucType, 4);
+							iPos += 4;
+							WriteUint32((uint8_t*)(pTmpBuf+iPos), iMemSize);
+							iPos += 4;
+							
+							SetMdatSize(sizeof(BUnit)+uiPos+8+12);
+							
+							printf("line:%d.---StartNewMdat-----------ucType=%s.membersize=%u.\n", __LINE__
+								,ucType, iMemSize);
+							
+							StartNewMdat();
+							WriteBytes(pTmpBuf, sizeof(BUnit)+uiPos+12);
+							
+							m_bAddFlag = true;
+						    EndOldMdat();
+							bIsAddFlag = true;
+							
+							{//start
+								uiPos = 0;
+								memcpy(ucType, pNode->m_pData->m_ucType, 4);
+								printf("line:%d.--->change new type.%s.\n", __LINE__, ucType);
+								
+								memcpy(pTmp24Buf+uiPos, pNode->m_pData->m_pUserData, pNode->m_pData->m_uiSize - sizeof(BUnit));
+								uiPos += pNode->m_pData->m_uiSize - sizeof(BUnit);
+								iMemSize = pNode->m_pData->m_uiMemSize;
+								bIsFinishAddFlag = true;
+							}//end
+						}
+						else if(  (ucType[0] == 'a')
+								&&(ucType[1] == 'd')
+								&&(ucType[2] == 't')
+								&&(ucType[3] == 't')
+						)
+						{
+							int iPos = 0;
+							
+							iPos = 0;
+							memcpy(pTmpBuf+iPos, SELF_DEFINE_FLAG, 8);
+							iPos += 8;
+							WriteUint32((uint8_t*)(pTmpBuf+iPos), SELF_VERSION);
+							iPos += 4;
+							WriteUint32((uint8_t*)(pTmpBuf+iPos), sizeof(BUnit)+uiPos);
+							iPos += 4;
+							memcpy((uint8_t*)(pTmpBuf+iPos), ucType, 4);
+							iPos += 4;
+							WriteUint32((uint8_t*)(pTmpBuf+iPos), iMemSize);
+							iPos += 4;
+							
+							SetMdatSize(sizeof(BUnit)+uiPos+8+12);
+
+							printf("line:%d.---StartNewMdat-----------ucType=%s.membersize=%u.\n", __LINE__
+								,ucType, iMemSize);
+
+							StartNewMdat();
+							WriteBytes(pTmpBuf, sizeof(BUnit)+uiPos+12);
+							
+							m_bAddFlag = true;
+						    EndOldMdat();
+							bIsAddFlag = true;
+							
+							{//start
+								uiPos = 0;
+								memcpy(ucType, pNode->m_pData->m_ucType, 4);
+								printf("--- line:%d.--->change new type.%s.\n", __LINE__, ucType);
+								
+								memcpy(pTmp24Buf+uiPos, pNode->m_pData->m_pUserData, pNode->m_pData->m_uiSize - sizeof(BUnit));
+								uiPos += pNode->m_pData->m_uiSize - sizeof(BUnit);
+								iMemSize = pNode->m_pData->m_uiMemSize;
+								bIsFinishAddFlag = true;
+							}//end
+						}
+						else if(  (ucType[0] == 'a')
+								&&(ucType[1] == 'd')
+								&&(ucType[2] == 'e')
+								&&(ucType[3] == 't')
+						)
+						{
+							int iPos = 0;
+							
+							iPos = 0;
+							memcpy(pTmpBuf+iPos, SELF_DEFINE_FLAG, 8);
+							iPos += 8;
+							WriteUint32((uint8_t*)(pTmpBuf+iPos), SELF_VERSION);
+							iPos += 4;
+							WriteUint32((uint8_t*)(pTmpBuf+iPos), sizeof(BUnit)+uiPos);
+							iPos += 4;
+							memcpy((uint8_t*)(pTmpBuf+iPos), ucType, 4);
+							iPos += 4;
+							WriteUint32((uint8_t*)(pTmpBuf+iPos), iMemSize);
+							iPos += 4;
+							
+							SetMdatSize(sizeof(BUnit)+uiPos+8+12);
+
+							printf("line:%d.---StartNewMdat-----------ucType=%s.membersize=%u.\n", __LINE__
+								,ucType, iMemSize);
+
+							StartNewMdat();
+							WriteBytes(pTmpBuf, sizeof(BUnit)+uiPos+12);
+							
+							m_bAddFlag = true;
+						    EndOldMdat();
+							bIsAddFlag = true;
+							
+							{//start
+								uiPos = 0;
+								memcpy(ucType, pNode->m_pData->m_ucType, 4);
+								printf("--- line:%d.--->change new type.%s.\n", __LINE__, ucType);
+								
+								memcpy(pTmp24Buf+uiPos, pNode->m_pData->m_pUserData, pNode->m_pData->m_uiSize - sizeof(BUnit));
+								uiPos += pNode->m_pData->m_uiSize - sizeof(BUnit);
+								iMemSize = pNode->m_pData->m_uiMemSize;
+								bIsFinishAddFlag = true;
+							}//end
+						}
+						else if(  (ucType[0] == 'e')
+								&&(ucType[1] == 'n')
+								&&(ucType[2] == 'c')
+								&&(ucType[3] == 't')
+						)
+						{
+							int iPos = 0;
+							
+							iPos = 0;
+							memcpy(pTmpBuf+iPos, SELF_DEFINE_FLAG, 8);
+							iPos += 8;
+							WriteUint32((uint8_t*)(pTmpBuf+iPos), SELF_VERSION);
+							iPos += 4;
+							WriteUint32((uint8_t*)(pTmpBuf+iPos), sizeof(BUnit)+uiPos);
+							iPos += 4;
+							memcpy((uint8_t*)(pTmpBuf+iPos), ucType, 4);
+							iPos += 4;
+							WriteUint32((uint8_t*)(pTmpBuf+iPos), iMemSize);
+							iPos += 4;
+							
+							SetMdatSize(sizeof(BUnit)+uiPos+8+12);
+
+							printf("line:%d.---StartNewMdat-----------ucType=%s.membersize=%u.\n", __LINE__
+								,ucType, iMemSize);
+
+							StartNewMdat();
+							WriteBytes(pTmpBuf, sizeof(BUnit)+uiPos+12);
+							
+							m_bAddFlag = true;
+						    EndOldMdat();
+							bIsAddFlag = true;
+							
+							{//start
+								uiPos = 0;
+								memcpy(ucType, pNode->m_pData->m_ucType, 4);
+								printf("--- line:%d.--->change new type.%s.\n", __LINE__, ucType);
+								
+								memcpy(pTmp24Buf+uiPos, pNode->m_pData->m_pUserData, pNode->m_pData->m_uiSize - sizeof(BUnit));
+								uiPos += pNode->m_pData->m_uiSize - sizeof(BUnit);
+								iMemSize = pNode->m_pData->m_uiMemSize;
+								bIsFinishAddFlag = true;
+							}//end
+						}
+
+						if(NULL != pNode){
+							delete(pNode);
+							pNode = NULL;
+						}
+						pNode = m_UserDefineData.PopNode();
+					}
+
+					if(bIsFinishAddFlag && (uiPos>0))
+					{
+						int iPos = 0;
+						
+						iPos = 0;
+						memcpy(pTmpBuf+iPos, SELF_DEFINE_FLAG, 8);
+						iPos += 8;
+						WriteUint32((uint8_t*)(pTmpBuf+iPos), SELF_VERSION);
+						iPos += 4;
+						WriteUint32((uint8_t*)(pTmpBuf+iPos), sizeof(BUnit)+uiPos);
+						iPos += 4;
+						memcpy((uint8_t*)(pTmpBuf+iPos), ucType, 4);
+						iPos += 4;
+						WriteUint32((uint8_t*)(pTmpBuf+iPos), iMemSize);
+						iPos += 4;
+						
+						SetMdatSize(sizeof(BUnit)+uiPos+8+12);
+
+						printf("line:%d.---StartNewMdat-----------ucType=%s.membersize=%u.\n", __LINE__
+							,ucType, iMemSize);
+
+						StartNewMdat();
+						WriteBytes(pTmpBuf, sizeof(BUnit)+uiPos+12);
+						
+						m_bAddFlag = true;
+					    EndOldMdat();
+						bIsAddFlag = true;
+
+						#if 1 //debug
+					
+						typedef struct
+						{
+							unsigned int uiSampleSize;		/* 大小*/
+							unsigned long long sampleDuration;/* 持续刻度*/
+						}__attribute__((packed))TSizeAndDuring;
+						typedef struct
+						{
+							int uiIFrameFlag;
+							TSizeAndDuring VideoInfo;	 /*视频信息*/
+						}__attribute__((packed))TVedioSampleInfo;
+
+						
+						printf("line:%d... --- uiPos/sizeof(TVedioSampleInfo)=%u/%d=%f.\n",__LINE__, uiPos, sizeof(TVedioSampleInfo)
+							,(double)uiPos/(double)sizeof(TVedioSampleInfo));
+							
+						int iDebug = 0;
+						TVedioSampleInfo* pstInfo = (TVedioSampleInfo*)pTmp24Buf;
+						for( ;iDebug<uiPos/sizeof(TVedioSampleInfo); iDebug++)
+						{
+							printf("*()* uiIFrameFlag=%d,",pstInfo[iDebug].uiIFrameFlag);
+							printf("uiSampleSize=%u\n",pstInfo[iDebug].VideoInfo.uiSampleSize);
+						}
+												
+						#endif
+
+						
+					}
+					
+					if(NULL != pTmpBuf){
+						free(pTmpBuf);
+						pTmpBuf = NULL;
+					}
+				}
+				else
+				{
+		            (void)InsertChildAtom(m_pRootAtom, "mdat",1);
+					m_pRootAtom->FirstWriteMdat();
+				    m_IsThisTimes = false;
+				}		
+				
+				if(bIsAddFlag)
+				{
+					SetMdatSize(ui64TmpMdatSize);
+					StartNewMdat();
+				}
+				else
+				{
+					StartNewMdat();
+				}
+			}	
+		#else
+			uint64_t ui64TmpMdatSize = 0;
+			ui64TmpMdatSize = GetMdatSize();
+			bool bIsAddFlag = false;
+			
+			if(m_ui64ActualJudgeMdatSize + (1==renderingOffset?numBytes-7:numBytes) > m_ui64CurMdatSize)
+			{
+				m_ui64ActualJudgeMdatSize = 8;
+	            EndOldMdat();
+				if(m_audioTrackInfo.m_uBufSize > 0){
+					SetMdatSize(m_audioTrackInfo.m_uBufSize+8);
+					StartNewMdat();
+					WriteBytes(m_audioTrackInfo.GetPacketData(),m_audioTrackInfo.m_uBufSize);
+					m_audioTrackInfo.ResetData();
+					m_bAddFlag = true;
+				    EndOldMdat();
+					bIsAddFlag = true;
+				}
+				if(m_virtualFrame.m_uBufSize > 0)
+				{
+					SetMdatSize(m_virtualFrame.m_uBufSize+8);
+					StartNewMdat();
+					WriteBytes(m_virtualFrame.GetPacketData(),m_virtualFrame.m_uBufSize);
+					m_virtualFrame.ResetData();
+					m_bAddFlag = true;
+				    EndOldMdat();
+					bIsAddFlag = true;
+				}
+				if(m_avSamepleInfo.m_uBufSize > 0)
+				{
+					SetMdatSize(m_avSamepleInfo.m_uBufSize+8);
+					StartNewMdat();
+					WriteBytes(m_avSamepleInfo.GetPacketData(),m_avSamepleInfo.m_uBufSize);
+					m_avSamepleInfo.ResetData();
+					bIsAddFlag = true;
+					m_bAddFlag = true;
+				    EndOldMdat();
+				}
+				
+				if(bIsAddFlag)
+				{
+					SetMdatSize(ui64TmpMdatSize);
+					StartNewMdat();
+				}
+				else
+				{
+					StartNewMdat();
+				}
+			}	
+			#endif
+		}
+		else
+		{
+			#if 1
+			if(m_ui64ActualJudgeMdatSize + (1==renderingOffset?numBytes-7:numBytes) > m_ui64CurMdatSize)
+			{
+				m_ui64ActualJudgeMdatSize = 8;
+	            EndOldMdat();
+				StartNewMdat();
+			}
+			else if((1==renderingOffset?numBytes-7:numBytes) > m_ui64CurMdatSize)
+			{
+				
+			}
+			#else
+			if( (GetTailPositonOfBuf() - GetLastAllBufNonius() - (1==renderingOffset?numBytes-7:numBytes)) >= m_ui64CurMdatSize){
+				//m_ui64ActualJudgeMdatSize = 8;
+	            EndOldMdat();
+				StartNewMdat();
+				RecordAllBufNonius();
+			}
+			#endif
+		}
+	}
+#endif
+	if(1 == renderingOffset)
+	{
+    	m_pTracks[FindTrackIndex(trackId)]->WriteSample(
+        	pBytes+7, numBytes-7, duration, renderingOffset-1, isSyncSample );
+	}
+	else
+	{
+    	m_pTracks[FindTrackIndex(trackId)]->WriteSample(
+        	pBytes, numBytes, duration, renderingOffset, isSyncSample );
+	}
+
+	if(1)
+	{
+    	m_pModificationProperty->SetValue( GetAllCreateTime() );
+	}
+	else
+	{
+    	m_pModificationProperty->SetValue( MP4GetAbsTimestamp() );
+	}
+
+#if 1
+    if(IsMulMdatMode())
+	{
+        m_ui64ActualJudgeMdatSize += (1==renderingOffset?numBytes-7:numBytes);
+	}
+#endif
 }
+#endif
+
+#if 1
+void MP4File::WriteSample(
+    MP4TrackId     trackId,
+    const uint8_t* pBytes,
+    uint32_t       numBytes,
+    MP4Duration    duration,
+    MP4Duration    renderingOffset,
+    bool           isSyncSample )
+{
+    ProtectWriteOperation(__FILE__, __LINE__, __FUNCTION__);
+
+	bool bIsAddFlag = false;
+
+    if(IsMulMdatMode())
+	{
+		if(m_IsThisTimes)
+		{
+			if(GetRealTimeMode() >= MP4_ADD_INFO)
+			{	
+				uint64_t ui64TmpMdatSize = 0;
+				ui64TmpMdatSize = GetMdatSize();
+
+				if(m_UserDefineData.m_iCount > 0)
+				{
+					bIsAddFlag = false;
+					if(1 == m_SelfDataMode)
+					{
+						if(!WriteSelfData(0, &bIsAddFlag, 0))
+						{
+							throw new Exception("Add vdtt failed!\n", __FILE__, __LINE__, __FUNCTION__);
+						}
+					}
+					else
+					{
+						if(!WriteSelfData(0, &bIsAddFlag))
+						{
+							throw new Exception("Add vdtt failed!\n", __FILE__, __LINE__, __FUNCTION__);
+						}
+					}
+					if(bIsAddFlag)
+					{
+						if(128 > ui64TmpMdatSize)
+						{
+							SetMdatSize(128);
+						}
+						else
+						{
+							SetMdatSize(ui64TmpMdatSize);
+						}
+					}
+					StartNewMdat();
+				}
+				else
+				{
+					throw new Exception("error: the first element must be more than one!\n", __FILE__, __LINE__, __FUNCTION__);
+				}
+			}
+			else
+			{
+				uint64_t ui64TmpMdatSize = 0;
+				ui64TmpMdatSize = GetMdatSize();
+				if(8 > ui64TmpMdatSize)
+				{
+					SetMdatSize(128);
+				}
+	            (void)InsertChildAtom(m_pRootAtom, "mdat",1);
+				m_pRootAtom->FirstWriteMdat();
+			    m_IsThisTimes = false;
+				RecordAllBufNonius();
+			}
+		}
+	}
+	
+    if(IsMulMdatMode())
+	{		
+		uint64_t ui64TmpMdatSize = 0;
+		ui64TmpMdatSize = GetMdatSize();
+
+		if(GetRealTimeMode() >= MP4_ADD_INFO)
+		{	
+			if(m_ui64ActualJudgeMdatSize + (1==renderingOffset?numBytes-7:numBytes) > m_ui64CurMdatSize)
+			{
+				m_ui64ActualJudgeMdatSize = 8+(m_createFlags?LARGE_FILE_SIZE:0);
+	            EndOldMdat();
+
+				if(m_UserDefineData.m_iCount > 0)
+				{
+					bIsAddFlag = false;
+					if(1 == m_SelfDataMode)
+					{
+						WriteSelfData(1, &bIsAddFlag, 0);
+					}
+					else
+					{
+						WriteSelfData(1, &bIsAddFlag);
+					}
+					if(bIsAddFlag)
+					{
+						SetMdatSize(ui64TmpMdatSize);
+					}
+				}
+				
+				if((1==renderingOffset?numBytes-7:numBytes) > m_ui64CurMdatSize)
+				{
+					SetMdatSize((1==renderingOffset?numBytes-7:numBytes)+8+(m_createFlags?LARGE_FILE_SIZE:0));
+				}
+				
+				StartNewMdat();
+			}	
+			
+		}else{
+			if(m_ui64ActualJudgeMdatSize + (1==renderingOffset?numBytes-7:numBytes) > m_ui64CurMdatSize)
+			{
+				m_ui64ActualJudgeMdatSize = 8+(m_createFlags?LARGE_FILE_SIZE:0);
+	            EndOldMdat();
+				
+				if((1==renderingOffset?numBytes-7:numBytes) > m_ui64CurMdatSize)
+				{
+					SetMdatSize((1==renderingOffset?numBytes-7:numBytes)+8+(m_createFlags?LARGE_FILE_SIZE:0));
+				}
+				
+				StartNewMdat();
+			}
+		}
+	}
+
+	if(1 == renderingOffset)
+	{
+    	m_pTracks[FindTrackIndex(trackId)]->WriteSample(
+        	pBytes+7, numBytes-7, duration, renderingOffset-1, isSyncSample );
+	}
+	else
+	{
+    	m_pTracks[FindTrackIndex(trackId)]->WriteSample(
+        	pBytes, numBytes, duration, renderingOffset, isSyncSample );
+	}
+
+	if(1)
+	{
+    	m_pModificationProperty->SetValue( GetAllCreateTime() );
+	}
+	else
+	{
+    	m_pModificationProperty->SetValue( MP4GetAbsTimestamp() );
+	}
+
+    if(IsMulMdatMode())
+	{
+        m_ui64ActualJudgeMdatSize += (1==renderingOffset?numBytes-7:numBytes);
+	}
+}
+#endif
 
 void MP4File::WriteSampleDependency(
     MP4TrackId     trackId,
@@ -3052,7 +4877,14 @@ void MP4File::WriteSampleDependency(
     ProtectWriteOperation(__FILE__, __LINE__, __FUNCTION__);
     m_pTracks[FindTrackIndex(trackId)]->WriteSampleDependency(
         pBytes, numBytes, duration, renderingOffset, isSyncSample, dependencyFlags );
-    m_pModificationProperty->SetValue( MP4GetAbsTimestamp() );
+	if(1)
+	{
+    	m_pModificationProperty->SetValue( MP4GetAbsTimestamp() );
+	}
+	else
+	{
+    	m_pModificationProperty->SetValue( MP4GetAbsTimestamp() );
+	}
 }
 
 void MP4File::SetSampleRenderingOffset(MP4TrackId trackId,
@@ -3062,7 +4894,11 @@ void MP4File::SetSampleRenderingOffset(MP4TrackId trackId,
     m_pTracks[FindTrackIndex(trackId)]->
     SetSampleRenderingOffset(sampleId, renderingOffset);
 
-    m_pModificationProperty->SetValue(MP4GetAbsTimestamp());
+	if(1){
+    	m_pModificationProperty->SetValue(MP4GetAbsTimestamp());
+	}else{
+    	m_pModificationProperty->SetValue(MP4GetAbsTimestamp());
+	}
 }
 
 void MP4File::MakeFtypAtom(
@@ -3180,7 +5016,26 @@ bool MP4File::GetTrackLanguage( MP4TrackId trackId, char* code )
 bool MP4File::SetTrackLanguage( MP4TrackId trackId, const char* code )
 {
     ProtectWriteOperation(__FILE__, __LINE__, __FUNCTION__);
-
+    
+	SetAudioProfileLevel(0x02);
+	SetTrackIntegerProperty(trackId, "mdia.minf.stbl.stsd.mp4a.channels", 2);
+	uint8_t aacConfig[2] = {0};
+	uint32_t tsc = GetTrackTimeScale(trackId);
+	if(tsc == 32000)
+	{
+		aacConfig[0] = 18;		
+		aacConfig[1] = 144; 	
+	}
+	else
+	{
+		aacConfig[0] = 17;
+		aacConfig[1] = 144;
+	}
+	if(0xbb != GetAudioProfileLevel())
+	{
+		SetTrackESConfiguration(trackId,aacConfig,2);
+	}
+		
     ostringstream oss;
     oss << "moov.trak[" << FindTrakAtomIndex(trackId) << "].mdia.mdhd.language";
 
@@ -3605,6 +5460,130 @@ void MP4File::SetTrackESConfiguration(MP4TrackId trackId,
 
     // set the value
     pInfoProperty->SetValue(pConfig, configSize);
+}
+
+//cwm
+void MP4File::GetTrackH265SeqPictHeaders (MP4TrackId trackId,
+        uint8_t ***pppVidHeader,
+        uint32_t **ppVidHeaderSize,
+        uint8_t ***pppSeqHeader,
+        uint32_t **ppSeqHeaderSize,
+        uint8_t ***pppPictHeader,
+        uint32_t **ppPictHeaderSize)
+{
+    uint32_t count;
+    const char *format;
+    MP4Atom *hvcCAtom;
+	
+    *pppVidHeader = NULL;
+    *pppSeqHeader = NULL;
+    *pppPictHeader = NULL;
+    *ppVidHeaderSize = NULL;
+    *ppSeqHeaderSize = NULL;
+    *ppPictHeaderSize = NULL;
+
+    // get 4cc media format - can be hev1 or encv for ismacrypted track
+    format = GetTrackMediaDataName (trackId);
+
+    if (!strcasecmp(format, "hev1"))
+        hvcCAtom = FindAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.hev1.hvcC"));
+    else if (!strcasecmp(format, "encv"))
+        hvcCAtom = FindAtom(MakeTrackName(trackId, "mdia.minf.stbl.stsd.encv.hvcC"));
+    else
+        // huh?  unknown track format
+        return;
+
+    MP4BitfieldProperty *pVidCount, *pSeqCount, *pPictCount;
+    MP4IntegerProperty *pVidLen, *pSeqLen, *pPictLen;
+    MP4BytesProperty *pVidVal, *pSeqVal, *pPictVal;
+	
+	//vps		
+	if ((hvcCAtom->FindProperty("hvcC.numOfVideoParameterSets",
+	                                (MP4Property **)&pVidCount) == false) ||
+	            (hvcCAtom->FindProperty("hvcC.videoEntries.videoParameterSetLength",
+	                                    (MP4Property **)&pVidLen) == false) ||
+	            (hvcCAtom->FindProperty("hvcC.videoEntries.videoParameterSetNALUnit",
+	                                    (MP4Property **)&pVidVal) == false)) {
+	        log.errorf("%s: \"%s\": Could not find hvcC properties", __FUNCTION__, GetFilename().c_str());
+	        return ;
+	    }
+	    uint8_t **ppVidHeader =
+	        (uint8_t **)malloc((pVidCount->GetValue() + 1) * sizeof(uint8_t *));
+	    if (ppVidHeader == NULL) return;
+	    *pppVidHeader = ppVidHeader;
+
+	    uint32_t *pVidHeaderSize =
+	        (uint32_t *)malloc((pVidCount->GetValue() + 1) * sizeof(uint32_t *));
+
+	    if (pVidHeaderSize == NULL) return;
+
+	    *ppVidHeaderSize = pVidHeaderSize;
+	    for (count = 0; count < pVidCount->GetValue(); count++) {
+	        pVidVal->GetValue(&(ppVidHeader[count]), &(pVidHeaderSize[count]),
+	                          count);
+	    }
+	    ppVidHeader[count] = NULL;
+	    pVidHeaderSize[count] = 0;
+
+	//sps
+    if ((hvcCAtom->FindProperty("hvcC.numOfSequenceParameterSets",
+                                (MP4Property **)&pSeqCount) == false) ||
+            (hvcCAtom->FindProperty("hvcC.sequenceEntries.sequenceParameterSetLength",
+                                    (MP4Property **)&pSeqLen) == false) ||
+            (hvcCAtom->FindProperty("hvcC.sequenceEntries.sequenceParameterSetNALUnit",
+                                    (MP4Property **)&pSeqVal) == false)) {
+        log.errorf("%s: \"%s\": Could not find hvcC properties", __FUNCTION__, GetFilename().c_str());
+        return ;
+    }
+    uint8_t **ppSeqHeader =
+        (uint8_t **)malloc((pSeqCount->GetValue() + 1) * sizeof(uint8_t *));
+    if (ppSeqHeader == NULL) return;
+    *pppSeqHeader = ppSeqHeader;
+
+    uint32_t *pSeqHeaderSize =
+        (uint32_t *)malloc((pSeqCount->GetValue() + 1) * sizeof(uint32_t *));
+
+    if (pSeqHeaderSize == NULL) return;
+
+    *ppSeqHeaderSize = pSeqHeaderSize;
+    for (count = 0; count < pSeqCount->GetValue(); count++) {
+        pSeqVal->GetValue(&(ppSeqHeader[count]), &(pSeqHeaderSize[count]),
+                          count);
+    }
+    ppSeqHeader[count] = NULL;
+    pSeqHeaderSize[count] = 0;
+
+	//pps
+    if ((hvcCAtom->FindProperty("hvcC.numOfPictureParameterSets",
+                                (MP4Property **)&pPictCount) == false) ||
+            (hvcCAtom->FindProperty("hvcC.pictureEntries.pictureParameterSetLength",
+                                    (MP4Property **)&pPictLen) == false) ||
+            (hvcCAtom->FindProperty("hvcC.pictureEntries.pictureParameterSetNALUnit",
+                                    (MP4Property **)&pPictVal) == false)) {
+        log.errorf("%s: \"%s\": Could not find hvcC picture table properties",
+                   __FUNCTION__, GetFilename().c_str());
+        return ;
+    }
+    uint8_t
+    **ppPictHeader =
+        (uint8_t **)malloc((pPictCount->GetValue() + 1) * sizeof(uint8_t *));
+    if (ppPictHeader == NULL) return;
+    uint32_t *pPictHeaderSize =
+        (uint32_t *)malloc((pPictCount->GetValue() + 1)* sizeof(uint32_t *));
+    if (pPictHeaderSize == NULL) {
+        free(ppPictHeader);
+        return;
+    }
+    *pppPictHeader = ppPictHeader;
+    *ppPictHeaderSize = pPictHeaderSize;
+
+    for (count = 0; count < pPictCount->GetValue(); count++) {
+        pPictVal->GetValue(&(ppPictHeader[count]), &(pPictHeaderSize[count]),
+                           count);
+    }
+    ppPictHeader[count] = NULL;
+    pPictHeaderSize[count] = 0;
+    return ;
 }
 
 
@@ -4211,6 +6190,10 @@ MP4Duration MP4File::GetTrackDurationPerChunk( MP4TrackId trackId )
 
 void MP4File::SetTrackDurationPerChunk( MP4TrackId trackId, MP4Duration duration )
 {
+    if(GetRealTimeMode() > MP4_NORMAL)
+	{
+        duration = 1;
+    }
     m_pTracks[FindTrackIndex(trackId)]->SetDurationPerChunk( duration );
 }
 
@@ -4358,6 +6341,1128 @@ void MP4File::EncAndCopySample(
     if( encSampleData != NULL )
         free( encSampleData );
 }
+
+//////////////////////////////////////////////////
+
+void MP4File::SetMulMdatMode( void )
+{
+    m_mulMdatMode = true;
+}
+
+bool MP4File::IsMulMdatMode( void )
+{
+    return m_mulMdatMode;
+}
+
+void MP4File::SetMdatSize( uint64_t mdatSize )
+{
+    m_ui64CurMdatSize = mdatSize;
+}
+
+uint64_t MP4File::GetMdatSize( void )
+{
+    return m_ui64CurMdatSize;
+}
+
+bool MP4File::StartNewMdat( void )
+{
+	log.infof("...***...^^^> StartNewMdat.\n");
+    MP4RootAtom* pRootAtom = (MP4RootAtom *)m_pRootAtom;
+	return pRootAtom->StartNewPacket( m_ui64CurMdatSize );
+}
+
+bool MP4File::EndOldMdat( void )
+{
+	log.infof("...***...^^^> EndOldMdat.\n");
+    MP4RootAtom* pRootAtom = (MP4RootAtom *)m_pRootAtom;
+    return pRootAtom->EndOldPacket();
+}
+
+uint64_t MP4File::GetActualMdatSize( void )
+{
+    uint64_t uiTmp = 0;
+    for (uint32_t i = 1; i <= m_pTracks.Size() && i <= 0xFFFF; i++) {
+        m_ui64ActualMdatSize += m_pTracks[FindTrackIndex(i)]->GetChunkSize();
+        m_pTracks[FindTrackIndex(i)]->ResetChunkSize();
+    }
+
+    uiTmp = m_ui64ActualMdatSize;
+    m_ui64ActualMdatSize = 0;
+	
+    return uiTmp+8+(m_createFlags?LARGE_FILE_SIZE:0);
+}
+
+bool MP4File::IsThisTimes( void )
+{
+    return m_IsThisTimes;
+}
+
+void MP4File::ResetThisTimes( void )
+{
+    m_IsThisTimes = false;
+}
+
+uint64_t MP4File::GetActualJudgeMdatSize( void )
+{
+	return m_ui64ActualJudgeMdatSize;
+}
+
+void MP4File::AddActualJudgeMdatSize( uint64_t size)
+{
+    m_ui64ActualJudgeMdatSize += size;
+}
+
+void MP4File::ResetActualJudgeMdatSize( void )
+{
+	m_ui64ActualJudgeMdatSize = 8;
+}
+
+MP4Atom* MP4File::GetRootAtom()
+{
+    return m_pRootAtom;
+}
+
+
+void MP4File::SetRealTimeMode(uint32_t mode)
+{
+	m_file->SetRealTimeMode(mode);
+}
+
+uint32_t MP4File::GetRealTimeMode()	
+{
+	return m_file->GetRealTimeMode();
+}
+
+bool MP4File::GetRealTimeData( uint8_t** pui8Data, uint64_t* _pui64DataSize)
+{
+	return m_file->GetRealTimeData(pui8Data, _pui64DataSize);
+}
+
+void MP4File::SetRealTimeModeBeforeOpen(uint32_t mode)
+{
+	m_realtimeModeBeforeOpen = mode;
+}
+uint32_t MP4File::GetRealTimeModeBeforeOpen()
+{
+	return m_realtimeModeBeforeOpen;
+}
+
+bool MP4File::WriteBaseUnit(MP4SelfType selfType, uint32_t memSize, uint8_t* unitBuf, uint32_t uinitBufSize)
+{
+#if 0
+	int i = 0;
+	for(i=0; i<uinitBufSize;i++){
+		printf("%02x.", unitBuf[i]);
+	}
+	printf("\n");
+#endif
+	
+	bool bRes = true;
+	//uint8_t* pcBuf = NULL;
+	//if(MP4_ADD_INFO == GetRealTimeMode()){
+	if(GetRealTimeMode() >= MP4_ADD_INFO)
+	{	
+		//if(MP4_RT_MOOV == GetRealTimeMode()){
+		//	pcBuf = (uint8_t*)malloc(uinitBufSize);
+		//}else{
+		//	pcBuf = unitBuf;
+		//}
+#if 1
+		CFDNode* pObjNode = new CFDNode(selfType, memSize, unitBuf, uinitBufSize);
+		m_UserDefineData.PushNode(pObjNode);
+
+		//printf("<<<In %c%c%c%c\n", pObjNode->m_pData->m_ucType[0]
+		//	, pObjNode->m_pData->m_ucType[1]
+		//	, pObjNode->m_pData->m_ucType[2]
+		//	, pObjNode->m_pData->m_ucType[3]);
+
+		#if 0
+		int i = 0;
+		char *pTmp = (char *)(pObjNode->m_pData);
+		for(i=0; i<pObjNode->m_pData->m_uiSize; i++){
+			printf("%02x ", pTmp[i]);
+		}
+			printf(">>>\n");
+			#endif
+		
+		//if(MP4_RT_MOOV == GetRealTimeMode()){
+		///	if(NULL != pcBuf){
+		//		free(pcBuf);
+		//	}
+		//}
+#else
+		switch(selfType)
+		{
+			case VMFT:
+			{
+				if(0 == m_virtualFrame.m_uBufSize)
+				{
+					m_virtualFrame.InitData(24, (uint8_t*)VIRTUAL_FRAME_TYPE, memSize);
+					bRes = m_virtualFrame.AddData(pcBuf, uinitBufSize);
+				}
+				else
+				{
+					bRes = m_virtualFrame.AddData(pcBuf, uinitBufSize);
+				}
+				break;
+			}
+			case AVST:
+			{
+				if(0 == m_avSamepleInfo.m_uBufSize)
+				{
+					m_avSamepleInfo.InitData(24, (uint8_t*)AV_SAMPLE_INFO_TYPE, memSize);
+					bRes = m_avSamepleInfo.AddData(pcBuf, uinitBufSize);
+				}
+				else
+				{
+					bRes = m_avSamepleInfo.AddData(pcBuf, uinitBufSize);
+				}
+				break;
+			}
+			case VDTT:
+			{
+				if(0 == m_videoTrackInfo.m_uBufSize)
+				{
+					m_videoTrackInfo.InitData(24, (uint8_t*)VIDEO_TRACK_INFO_TYPE, memSize);
+					bRes = m_videoTrackInfo.AddData(pcBuf, uinitBufSize);
+				}
+				else
+				{
+					bRes = m_videoTrackInfo.AddData(pcBuf, uinitBufSize);
+				}
+				break;
+			}
+			case ADTT:
+			{
+				if(0 == m_audioTrackInfo.m_uBufSize)
+				{
+					m_audioTrackInfo.InitData(24, (uint8_t*)AUDIO_TRACK_INFO_TYPE, memSize);
+					bRes = m_audioTrackInfo.AddData(pcBuf, uinitBufSize);
+				}
+				else
+				{
+					bRes = m_audioTrackInfo.AddData(pcBuf, uinitBufSize);
+				}
+				break;
+			}
+			default:
+			{
+				log.infof("default end\n");
+				break;
+			}
+		}
+	
+		if(MP4_RT_MOOV == GetRealTimeMode())
+		{
+			if(NULL != pcBuf)
+			{
+				free(pcBuf);
+			}
+		}
+#endif
+	}
+	else
+	{
+		bRes = false;
+		log.errorf("You must set to MP4_ADD_INFO or MP4_RT_MOOV mode.\n");
+	}
+	
+	return bRes;
+}
+
+void MP4File::SetAllCreateTime(MP4Timestamp createTime)
+{
+	m_createTime = createTime;
+}
+
+MP4Timestamp MP4File::GetAllCreateTime( void )
+{
+	return m_createTime;
+}
+
+void MP4File::SetEncryptionFlag(bool encryptionFlag)
+{
+	m_encryptionFlag = encryptionFlag;
+	log.infof("m_encryptionFlag=%d", m_encryptionFlag);
+}
+
+bool MP4File::WriteSelfData()
+{
+#if 1
+	if(GetRealTimeMode() >= MP4_ADD_INFO)
+	{	
+		uint64_t ui64TmpMdatSize = 0;
+		bool bIsAddFlag = false;
+		unsigned char ucType[5] = {0};
+		CFDNode *pNode = NULL;
+		uint32_t uiPos = 0;
+		bool bFirstRecordType = true;
+		bool bIsFinishAddFlag = false;
+		
+		ui64TmpMdatSize = GetMdatSize();
+		EndOldMdat();
+
+		if((m_UserDefineData.m_iCount > 0))// && (m_VirtualFrameFillSize<=0))
+		{
+			uint8_t* pTmpBuf = NULL;
+			uint8_t* pTmp24Buf = NULL;
+			pTmpBuf = (uint8_t*)malloc(1024*1024*2);
+			MP4File::m_ui32MallocCount++;
+
+			pTmp24Buf = pTmpBuf+24;
+			uint32_t iMemSize = 0;
+			
+			pNode = m_UserDefineData.PopNode();
+				
+			while(NULL != pNode)
+			{
+				if(bFirstRecordType)
+				{
+					memcpy(ucType, pNode->m_pData->m_ucType, 4);
+					bFirstRecordType = false;
+				}
+
+				if( (pNode->m_pData->m_ucType[0] == ucType[0])
+					&&(pNode->m_pData->m_ucType[1] == ucType[1])
+					&&(pNode->m_pData->m_ucType[2] == ucType[2])
+					&&(pNode->m_pData->m_ucType[3] == ucType[3])
+					)
+				{
+					memcpy(pTmp24Buf+uiPos, pNode->m_pData->m_pUserData, pNode->m_pData->m_uiSize - sizeof(BUnit));
+					uiPos += pNode->m_pData->m_uiSize - sizeof(BUnit);
+					memcpy(ucType, pNode->m_pData->m_ucType, 4);
+					iMemSize = pNode->m_pData->m_uiMemSize;
+					bIsFinishAddFlag = true;
+ 				}
+				else if(  (ucType[0] == 'a')
+						&&(ucType[1] == 'v')
+						&&(ucType[2] == 's')
+						&&(ucType[3] == 't') 
+				)
+				{
+					int iPos = 0;
+					
+					iPos = 0;
+					memcpy(pTmpBuf+iPos, SELF_DEFINE_FLAG, 8);
+					iPos += 8;
+					WriteUint32((uint8_t*)(pTmpBuf+iPos), SELF_VERSION);
+					iPos += 4;
+					WriteUint32((uint8_t*)(pTmpBuf+iPos), sizeof(BUnit)+uiPos);
+					iPos += 4;
+					memcpy((uint8_t*)(pTmpBuf+iPos), "avst", 4);
+					iPos += 4;
+					WriteUint32((uint8_t*)(pTmpBuf+iPos), iMemSize);
+					iPos += 4;
+					
+					SetMdatSize(sizeof(BUnit)+uiPos+8+12+(m_createFlags?LARGE_FILE_SIZE:0));
+
+					log.infof("line:%d.---StartNewMdat-----------ucType=%s.membersize=%u.\n", __LINE__
+						,ucType, iMemSize);
+					
+					StartNewMdat();
+					WriteBytes(pTmpBuf, sizeof(BUnit)+uiPos+12);
+					
+					m_bAddFlag = true;
+				    EndOldMdat();
+					bIsAddFlag = true;
+
+					{//start	
+						uiPos = 0;
+						memcpy(ucType, pNode->m_pData->m_ucType, 4);
+						log.infof("line:%d.--->change new type.%s.\n", __LINE__, ucType);
+						
+						memcpy(pTmp24Buf+uiPos, pNode->m_pData->m_pUserData, pNode->m_pData->m_uiSize - sizeof(BUnit));
+						uiPos += pNode->m_pData->m_uiSize - sizeof(BUnit);
+						iMemSize = pNode->m_pData->m_uiMemSize;
+						bIsFinishAddFlag = true;
+					}//end
+				}
+				else if(  (ucType[0] == 'v')
+						&&(ucType[1] == 'm')
+						&&(ucType[2] == 'f')
+						&&(ucType[3] == 't')
+				)
+				{					
+					int iPos = 0;
+					
+					iPos = 0;
+					memcpy(pTmpBuf+iPos, SELF_DEFINE_FLAG, 8);
+					iPos += 8;
+					WriteUint32((uint8_t*)(pTmpBuf+iPos), SELF_VERSION);
+					iPos += 4;
+					WriteUint32((uint8_t*)(pTmpBuf+iPos), sizeof(BUnit)+uiPos);
+					iPos += 4;
+					memcpy((uint8_t*)(pTmpBuf+iPos), "vmft", 4);
+					iPos += 4;
+					WriteUint32((uint8_t*)(pTmpBuf+iPos), iMemSize);
+					iPos += 4;
+					
+					SetMdatSize(sizeof(BUnit)+uiPos+8+12+(m_createFlags?LARGE_FILE_SIZE:0));
+
+					log.infof("line:%d.---StartNewMdat-----------ucType=%s.membersize=%u.\n", __LINE__
+						,ucType, iMemSize);
+					
+					StartNewMdat();
+					WriteBytes(pTmpBuf, sizeof(BUnit)+uiPos+12);
+					
+					m_bAddFlag = true;
+				    EndOldMdat();
+					bIsAddFlag = true;
+					
+					{//start	
+						uiPos = 0;
+						memcpy(ucType, pNode->m_pData->m_ucType, 4);
+						log.infof("line:%d.--->change new type.%s.\n", __LINE__, ucType);
+						
+						memcpy(pTmp24Buf+uiPos, pNode->m_pData->m_pUserData, pNode->m_pData->m_uiSize - sizeof(BUnit));
+						uiPos += pNode->m_pData->m_uiSize - sizeof(BUnit);
+						iMemSize = pNode->m_pData->m_uiMemSize;
+						bIsFinishAddFlag = true;
+					}//end
+				}
+				else if(  (ucType[0] == 'a')
+						&&(ucType[1] == 'd')
+						&&(ucType[2] == 'e')
+						&&(ucType[3] == 't')
+				)
+				{
+					int iPos = 0;
+					
+					iPos = 0;
+					memcpy(pTmpBuf+iPos, SELF_DEFINE_FLAG, 8);
+					iPos += 8;
+					WriteUint32((uint8_t*)(pTmpBuf+iPos), SELF_VERSION);
+					iPos += 4;
+					WriteUint32((uint8_t*)(pTmpBuf+iPos), sizeof(BUnit)+uiPos);
+					iPos += 4;
+					memcpy((uint8_t*)(pTmpBuf+iPos), ucType, 4);
+					iPos += 4;
+					WriteUint32((uint8_t*)(pTmpBuf+iPos), iMemSize);
+					iPos += 4;
+					
+					SetMdatSize(sizeof(BUnit)+uiPos+8+12+(m_createFlags?LARGE_FILE_SIZE:0));
+
+					log.infof("line:%d.---StartNewMdat-----------ucType=%s.membersize=%u.\n", __LINE__
+						,ucType, iMemSize);
+					
+					StartNewMdat();
+					WriteBytes(pTmpBuf, sizeof(BUnit)+uiPos+12);
+					
+					m_bAddFlag = true;
+				    EndOldMdat();
+					bIsAddFlag = true;
+					
+					{//start
+						uiPos = 0;
+						memcpy(ucType, pNode->m_pData->m_ucType, 4);
+						log.infof("--- line:%d.--->change new type.%s.\n", __LINE__, ucType);
+						
+						memcpy(pTmp24Buf+uiPos, pNode->m_pData->m_pUserData, pNode->m_pData->m_uiSize - sizeof(BUnit));
+						uiPos += pNode->m_pData->m_uiSize - sizeof(BUnit);
+						iMemSize = pNode->m_pData->m_uiMemSize;
+						bIsFinishAddFlag = true;
+					}//end
+				}
+				else if(  (ucType[0] == 'e')
+						&&(ucType[1] == 'n')
+						&&(ucType[2] == 'c')
+						&&(ucType[3] == 't')
+				)
+				{
+					int iPos = 0;
+					
+					iPos = 0;
+					memcpy(pTmpBuf+iPos, SELF_DEFINE_FLAG, 8);
+					iPos += 8;
+					WriteUint32((uint8_t*)(pTmpBuf+iPos), SELF_VERSION);
+					iPos += 4;
+					WriteUint32((uint8_t*)(pTmpBuf+iPos), sizeof(BUnit)+uiPos);
+					iPos += 4;
+					memcpy((uint8_t*)(pTmpBuf+iPos), ucType, 4);
+					iPos += 4;
+					WriteUint32((uint8_t*)(pTmpBuf+iPos), iMemSize);
+					iPos += 4;
+					
+					SetMdatSize(sizeof(BUnit)+uiPos+8+12+(m_createFlags?LARGE_FILE_SIZE:0));
+
+					log.infof("line:%d.---StartNewMdat-----------ucType=%s.membersize=%u.\n", __LINE__
+						,ucType, iMemSize);
+					
+					StartNewMdat();
+					WriteBytes(pTmpBuf, sizeof(BUnit)+uiPos+12);
+					
+					m_bAddFlag = true;
+				    EndOldMdat();
+					bIsAddFlag = true;
+					
+					{//start
+						uiPos = 0;
+						memcpy(ucType, pNode->m_pData->m_ucType, 4);
+						log.infof("--- line:%d.--->change new type.%s.\n", __LINE__, ucType);
+						
+						memcpy(pTmp24Buf+uiPos, pNode->m_pData->m_pUserData, pNode->m_pData->m_uiSize - sizeof(BUnit));
+						uiPos += pNode->m_pData->m_uiSize - sizeof(BUnit);
+						iMemSize = pNode->m_pData->m_uiMemSize;
+						bIsFinishAddFlag = true;
+					}//end
+				}	
+				else //adtt
+				{
+					int iPos = 0;
+					
+					iPos = 0;
+					memcpy(pTmpBuf+iPos, SELF_DEFINE_FLAG, 8);
+					iPos += 8;
+					WriteUint32((uint8_t*)(pTmpBuf+iPos), SELF_VERSION);
+					iPos += 4;
+					WriteUint32((uint8_t*)(pTmpBuf+iPos), sizeof(BUnit)+uiPos);
+					iPos += 4;
+					memcpy((uint8_t*)(pTmpBuf+iPos), "adtt", 4);
+					iPos += 4;
+					WriteUint32((uint8_t*)(pTmpBuf+iPos), iMemSize);
+					iPos += 4;
+					
+					SetMdatSize(sizeof(BUnit)+uiPos+8+12+(m_createFlags?LARGE_FILE_SIZE:0));
+					log.infof("line:%d.---StartNewMdat-----------ucType=%s.membersize=%u\n", __LINE__
+						,ucType, iMemSize);
+					StartNewMdat();
+					WriteBytes(pTmpBuf, sizeof(BUnit)+uiPos+12);
+					
+					m_bAddFlag = true;
+				    EndOldMdat();
+					bIsAddFlag = true;
+
+					{//start
+						uiPos = 0;
+						memcpy(ucType, pNode->m_pData->m_ucType, 4);
+						log.infof("line:%d.--->change new type.%s.\n", __LINE__, ucType);
+						
+						memcpy(pTmp24Buf+uiPos, pNode->m_pData->m_pUserData, pNode->m_pData->m_uiSize - sizeof(BUnit));
+						uiPos += pNode->m_pData->m_uiSize - sizeof(BUnit);
+						iMemSize = pNode->m_pData->m_uiMemSize;
+						bIsFinishAddFlag = true;
+					}//end
+					
+				}
+				
+				if(NULL != pNode)
+				{
+					delete(pNode);
+					pNode = NULL;
+				}
+				pNode = m_UserDefineData.PopNode();
+			}
+			
+			if( bIsFinishAddFlag && (uiPos>0) )
+			{
+				int iPos = 0;
+				
+				iPos = 0;
+				memcpy(pTmpBuf+iPos, SELF_DEFINE_FLAG, 8);
+				iPos += 8;
+				WriteUint32((uint8_t*)(pTmpBuf+iPos), SELF_VERSION);
+				iPos += 4;
+				WriteUint32((uint8_t*)(pTmpBuf+iPos), sizeof(BUnit)+uiPos);
+				iPos += 4;
+				memcpy((uint8_t*)(pTmpBuf+iPos), ucType, 4);
+				iPos += 4;
+				WriteUint32((uint8_t*)(pTmpBuf+iPos), iMemSize);
+				iPos += 4;
+				
+				SetMdatSize(sizeof(BUnit)+uiPos+8+12+(m_createFlags?LARGE_FILE_SIZE:0));
+				
+				log.infof("line:%d.---StartNewMdat-----------ucType=%s.membersize=%u.\n", __LINE__
+					,ucType, iMemSize);
+					
+				StartNewMdat();
+				WriteBytes(pTmpBuf, sizeof(BUnit)+uiPos+12);
+				
+				m_bAddFlag = true;
+				EndOldMdat();
+				bIsAddFlag = true;
+			}
+
+			
+			if(NULL != pTmpBuf){
+				free(pTmpBuf);
+				pTmpBuf = NULL;
+				MP4File::m_ui32MallocCount--;
+			}
+		}
+	}
+
+	return true;
+#else
+	//if(MP4_ADD_INFO == GetRealTimeMode()){	
+	if(GetRealTimeMode() >= MP4_ADD_INFO)
+	{	
+		uint64_t ui64TmpMdatSize = 0;
+		ui64TmpMdatSize = GetMdatSize();
+		bool bIsAddFlag = false;
+		
+		EndOldMdat();
+		
+		if(m_audioTrackInfo.m_uBufSize > 0)
+		{
+			SetMdatSize(m_audioTrackInfo.m_uBufSize+8);
+			StartNewMdat();
+			WriteBytes(m_audioTrackInfo.GetPacketData(),m_audioTrackInfo.m_uBufSize);
+			m_audioTrackInfo.ResetData();
+			m_bAddFlag = true;
+		    EndOldMdat();
+			bIsAddFlag = true;
+		}
+		if(m_virtualFrame.m_uBufSize > 0)
+		{
+			SetMdatSize(m_virtualFrame.m_uBufSize+8);
+			StartNewMdat();
+			WriteBytes(m_virtualFrame.GetPacketData(),m_virtualFrame.m_uBufSize);
+			m_virtualFrame.ResetData();
+			m_bAddFlag = true;
+		    EndOldMdat();
+			bIsAddFlag = true;
+		}
+		if(m_avSamepleInfo.m_uBufSize > 0)
+		{
+			SetMdatSize(m_avSamepleInfo.m_uBufSize+8);
+			StartNewMdat();
+			WriteBytes(m_avSamepleInfo.GetPacketData(),m_avSamepleInfo.m_uBufSize);
+			m_avSamepleInfo.ResetData();
+			bIsAddFlag = true;
+			m_bAddFlag = true;
+		    EndOldMdat();
+		}
+	}
+
+	return true;
+#endif
+}
+
+bool MP4File::WriteSelfData(int iStateFlag, bool* bFinish)
+{
+	bool bIsAddFlag = false;
+	unsigned char ucType[5] = {0};
+	CFDNode *pNode = NULL;
+	uint32_t uiPos = 0;
+	uint8_t* pTmpBuf = NULL;
+	uint8_t* pTmp24Buf = NULL;
+	
+	switch(iStateFlag)
+	{
+		case 0:
+		{
+			bool bIsFinishAddFlag = false;
+			if(m_UserDefineData.m_iCount < 0)
+			{
+				log.errorf("%s:%d error: the first element must be more than one!\n", __FUNCTION__, __LINE__);				
+			}
+
+			#if 1
+			pTmpBuf = m_SelfBuf;
+			#else
+			pTmpBuf = (uint8_t*)malloc(sizeof(CFDNode)+128);
+			#endif
+			pTmp24Buf = pTmpBuf+24;
+			pNode = m_UserDefineData.PopNode();
+				
+			if(NULL != pNode)
+			{
+				uint32_t iMemSize = 0;
+				if(!( (pNode->m_pData->m_ucType[0] == VIDEO_TRACK_INFO_TYPE[0])
+					&&(pNode->m_pData->m_ucType[1] == VIDEO_TRACK_INFO_TYPE[1])
+					&&(pNode->m_pData->m_ucType[2] == VIDEO_TRACK_INFO_TYPE[2])
+					&&(pNode->m_pData->m_ucType[3] == VIDEO_TRACK_INFO_TYPE[3])
+					))
+				{
+					log.errorf("%s:%d error the first element must be vdtt!\n", __FUNCTION__, __LINE__);
+					return false;
+				}
+
+				if(m_SelfBufSize < pNode->m_pData->m_uiSize+512)
+				{
+					m_SelfBuf = (uint8_t*)MP4Realloc(m_SelfBuf,m_SelfBufSize+=((pNode->m_pData->m_uiSize+512)*2));
+					if(NULL == m_SelfBuf)
+					{
+				        throw new Exception( "remalloc memery for m_SelfBuf failed.\n",__FILE__,__LINE__,__FUNCTION__);
+					}
+					pTmpBuf = m_SelfBuf;
+					pTmp24Buf = pTmpBuf+24;
+				}
+
+				memcpy(pTmp24Buf+uiPos, pNode->m_pData->m_pUserData, pNode->m_pData->m_uiSize - sizeof(BUnit));
+				memcpy(ucType, pNode->m_pData->m_ucType, 4);
+				iMemSize = pNode->m_pData->m_uiMemSize;
+				uiPos += pNode->m_pData->m_uiSize - sizeof(BUnit);
+
+				PackageSelfData(1, pTmpBuf, pTmp24Buf, pNode, ucType, &uiPos, &iMemSize, &bIsAddFlag, &bIsFinishAddFlag);
+
+				#if 0
+				if(NULL != pTmpBuf){
+					free(pTmpBuf);
+					pTmpBuf = NULL;
+				}
+				#endif
+				
+				if(NULL != pNode)
+				{
+					delete(pNode);
+					pNode = NULL;
+				}
+				m_IsThisTimes = false;
+			}
+			else
+			{
+	    		throw new Exception("node is null!", __FILE__, __LINE__, __FUNCTION__);
+			}
+
+			break;
+		}
+		case 1:	
+		{//go to next case
+		}
+		case 2:
+		{
+			bool bIsFinishAddFlag = false;
+			bool bFirstRecordType = true;
+			unsigned char ucType[5] = {0};
+			CFDNode *pNode = NULL;
+			uint32_t iMemSize = 0;
+
+			uiPos = 0;
+			if(m_UserDefineData.m_iCount <= 0)
+			{
+				break;
+			}
+			
+			#if 1
+			pTmpBuf = m_SelfBuf;
+			#else
+			pTmpBuf = (uint8_t*)malloc(1024*1024*2);
+			#endif
+			
+			pTmp24Buf = pTmpBuf+24;
+			
+			pNode = m_UserDefineData.PopNode();
+				
+			while(NULL != pNode)
+			{
+				bIsFinishAddFlag = false;
+				if(bFirstRecordType)
+				{
+					memcpy(ucType, pNode->m_pData->m_ucType, 4);
+					bFirstRecordType = false;
+				}
+
+				if( (pNode->m_pData->m_ucType[0] == ucType[0])
+					&&(pNode->m_pData->m_ucType[1] == ucType[1])
+					&&(pNode->m_pData->m_ucType[2] == ucType[2])
+					&&(pNode->m_pData->m_ucType[3] == ucType[3])
+					)
+				{
+					if(m_SelfBufSize < pNode->m_pData->m_uiSize+512){
+						if((pNode->m_pData->m_uiSize+512) > (m_SelfBufSize*2))
+						{
+							m_SelfBufSize+=(pNode->m_pData->m_uiSize+512);
+						}
+						else
+						{
+							m_SelfBufSize*=2;
+						}
+						m_SelfBuf = (uint8_t*)MP4Realloc(m_SelfBuf,m_SelfBufSize);
+						if(NULL == m_SelfBuf)
+						{
+					        throw new Exception( "remalloc memery for m_SelfBuf failed.\n",__FILE__,__LINE__,__FUNCTION__);
+						}
+						pTmpBuf = m_SelfBuf;
+						pTmp24Buf = pTmpBuf+24;
+					}
+					
+					memcpy(pTmp24Buf+uiPos, pNode->m_pData->m_pUserData, pNode->m_pData->m_uiSize - sizeof(BUnit));
+					uiPos += pNode->m_pData->m_uiSize - sizeof(BUnit);
+					iMemSize = pNode->m_pData->m_uiMemSize;
+					bIsFinishAddFlag = true;
+				}
+				else
+				{
+					PackageSelfData(2, pTmpBuf, pTmp24Buf, pNode, ucType, &uiPos, &iMemSize, &bIsAddFlag, &bIsFinishAddFlag);
+				}
+				
+				if(NULL != pNode)
+				{
+					delete(pNode);
+					pNode = NULL;
+				}
+				pNode = m_UserDefineData.PopNode();
+			}
+
+			if(bIsFinishAddFlag && (uiPos>0))
+			{
+				PackageSelfData(3, pTmpBuf, pTmp24Buf, pNode, ucType, &uiPos, &iMemSize, &bIsAddFlag, &bIsFinishAddFlag);
+			}
+
+			#if 0
+			if(NULL != pTmpBuf){
+				free(pTmpBuf);
+				pTmpBuf = NULL;
+			}
+			#endif
+			
+			break;
+		}
+		default:
+		{
+	    	throw new Exception("unknown type!", __FILE__, __LINE__, __FUNCTION__);
+			break;
+		}
+	}
+
+	*bFinish = bIsAddFlag;
+	
+	return true;
+}
+
+bool MP4File::WriteSelfData(int iStateFlag, bool* bFinish, uint8_t* ui8Others)
+{
+	bool bIsAddFlag = false;
+	unsigned char ucType[5] = {0};
+	CFDNode *pNode = NULL;
+	uint32_t uiPos = 0;
+	
+	uint8_t* pTmpBuf = NULL;
+	uint8_t* pTmp24Buf = NULL;
+	
+	switch(iStateFlag)
+	{
+		case 0:
+		{
+			bool bIsFinishAddFlag = false;
+			if(m_UserDefineData.m_iCount < 0)
+			{
+				log.errorf("%s:%d error: the first element must be more than one!\n", __FUNCTION__, __LINE__);				
+			}
+
+			#if 1
+			pTmpBuf = m_SelfBuf;
+			#else
+			pTmpBuf = (uint8_t*)malloc(sizeof(CFDNode)+128);
+			#endif
+			pTmp24Buf = pTmpBuf+24;
+			pNode = m_UserDefineData.PopNode();
+				
+			if(NULL != pNode)
+			{
+				uint32_t iMemSize = 0;
+				if(!( (pNode->m_pData->m_ucType[0] == VIDEO_TRACK_INFO_TYPE[0])
+					&&(pNode->m_pData->m_ucType[1] == VIDEO_TRACK_INFO_TYPE[1])
+					&&(pNode->m_pData->m_ucType[2] == VIDEO_TRACK_INFO_TYPE[2])
+					&&(pNode->m_pData->m_ucType[3] == VIDEO_TRACK_INFO_TYPE[3])
+					))
+				{
+					log.errorf("%s:%d error the first element must be vdtt!\n", __FUNCTION__, __LINE__);
+					return false;
+				}
+
+				if(m_SelfBufSize < pNode->m_pData->m_uiSize+512)
+				{
+					m_SelfBuf = (uint8_t*)MP4Realloc(m_SelfBuf,m_SelfBufSize+=((pNode->m_pData->m_uiSize+512)*2));
+					if(NULL == m_SelfBuf)
+					{
+				        throw new Exception( "remalloc memery for m_SelfBuf failed.\n",__FILE__,__LINE__,__FUNCTION__);
+					}
+					pTmpBuf = m_SelfBuf;
+					pTmp24Buf = pTmpBuf+24;
+				}
+	
+				memcpy(pTmp24Buf+uiPos, pNode->m_pData->m_pUserData, pNode->m_pData->m_uiSize - sizeof(BUnit));
+				memcpy(ucType, pNode->m_pData->m_ucType, 4);
+				iMemSize = pNode->m_pData->m_uiMemSize;
+				uiPos += pNode->m_pData->m_uiSize - sizeof(BUnit);
+
+				PackageSelfData(1, pTmpBuf, pTmp24Buf, pNode, ucType, &uiPos, &iMemSize, &bIsAddFlag, &bIsFinishAddFlag);
+
+				#if 0
+				if(NULL != pTmpBuf){
+					free(pTmpBuf);
+					pTmpBuf = NULL;
+				}
+				#endif
+
+				//m_UserDefineData.ResetData();
+				m_UserDefineData.ResetData(pNode->m_pData->m_uiSize);
+				
+				log.infof("%s:%d.ResetData=%d.\n", __FUNCTION__, __LINE__, pNode->m_pData->m_uiSize);
+				if(NULL != pNode)
+				{
+					delete(pNode);
+					pNode = NULL;
+				}
+				m_IsThisTimes = false;
+			}
+			else
+			{
+        		throw new Exception("node is null!", __FILE__, __LINE__, __FUNCTION__);
+			}
+
+			break;
+		}
+		case 1:	
+		{//go to next case
+		}
+		case 2:
+		{
+			CFDNode *pNode = NULL;
+			bool bIsEndMdat = false;
+			uint64_t ui64SelfMdatSize = 0;
+
+			uiPos = 0;
+			if(m_UserDefineData.m_iCount <= 0)
+			{
+				break;
+			}
+			
+			#if 1
+			pTmpBuf = m_SelfBuf;
+			#else
+			pTmpBuf = (uint8_t*)malloc(1024*1024*2);
+			#endif
+						
+			pNode = m_UserDefineData.PopNode();
+				
+			if(NULL != pNode)
+			{
+				ui64SelfMdatSize = m_UserDefineData.m_iListSize+8+12+(m_createFlags?LARGE_FILE_SIZE:0);
+				SetMdatSize(ui64SelfMdatSize);
+				bIsEndMdat = true;
+				bIsAddFlag = true;
+				m_bAddFlag = true;
+				
+				memcpy(pTmpBuf+uiPos, SELF_DEFINE_FLAG, 8);
+				uiPos += 8;
+				WriteUint32((uint8_t*)(pTmpBuf+uiPos), SELF_VERSION);
+				uiPos += 4;
+				
+				StartNewMdat();
+
+				WriteBytes(pTmpBuf, 12);
+				uiPos= 0;
+			}
+			
+			while(NULL != pNode)
+			{
+			#if 0
+				if(m_SelfBufSize < pNode->m_pData->m_uiSize+512){
+					if((pNode->m_pData->m_uiSize+512) > (m_SelfBufSize*2)){
+						m_SelfBufSize+=(pNode->m_pData->m_uiSize+512);
+					}
+					else{
+						m_SelfBufSize*=2;
+					}
+					m_SelfBuf = (uint8_t*)MP4Realloc(m_SelfBuf,m_SelfBufSize);
+					if(NULL == m_SelfBuf){
+				        throw new Exception( "remalloc memery for m_SelfBuf failed.\n",__FILE__,__LINE__,__FUNCTION__);
+					}
+					pTmpBuf = m_SelfBuf;
+				}
+			#endif
+				RecordSelfData((uint8_t*)(pNode->m_pData->m_pUserData), pNode->m_pData->m_ucType);
+				//printf("........................%c%c%c%c.\n", pNode->m_pData->m_ucType[0]
+				//	, pNode->m_pData->m_ucType[1], pNode->m_pData->m_ucType[2], pNode->m_pData->m_ucType[3]);
+				
+			#if 0	
+				memcpy(pTmpBuf+uiPos, pNode->m_pData, pNode->m_pData->m_uiSize);
+				uiPos += pNode->m_pData->m_uiSize;
+			#endif
+				
+				unsigned int  uiSize = 0;
+				uiSize = pNode->m_pData->m_uiSize;
+				WriteUint32((uint8_t*)(&pNode->m_pData->m_uiSize), pNode->m_pData->m_uiSize);
+				WriteUint32((uint8_t*)(&pNode->m_pData->m_uiMemSize), pNode->m_pData->m_uiMemSize);
+				WriteBytes((uint8_t*)(pNode->m_pData), uiSize);
+				uiPos+=uiSize;
+				
+				if(NULL != pNode)
+				{
+					delete(pNode);
+					pNode = NULL;
+				}
+				pNode = m_UserDefineData.PopNode();
+			}
+
+			#if 0
+			WriteBytes(pTmpBuf, ui64SelfMdatSize-8);
+			#endif
+			m_UserDefineData.ResetData();
+
+			if(bIsEndMdat)
+			{
+				EndOldMdat();
+			}
+
+			break;
+		}
+		default:
+		{
+        	throw new Exception("unknown type!", __FILE__, __LINE__, __FUNCTION__);
+			break;
+		}
+	}
+
+	*bFinish = bIsAddFlag;
+	
+	return true;
+}
+
+void MP4File::RecordSelfData(uint8_t* pTmpBuf, uint8_t* ucType)
+{//记录自定义数据
+	if((ucType[0] == ADJOURN[0])
+		&& (ucType[1] == ADJOURN[1])
+		&& (ucType[2] == ADJOURN[2])
+		&& (ucType[3] == ADJOURN[3]))
+	{
+		m_AdjournPos = GetTailPositonOfBuf();
+	}
+	
+	if((ucType[0] == ENCRYPTION_TYPE[0])
+		&& (ucType[1] == ENCRYPTION_TYPE[1])
+		&& (ucType[2] == ENCRYPTION_TYPE[2])
+		&& (ucType[3] == ENCRYPTION_TYPE[3]))
+	{
+		memcpy(&m_Encryption, pTmpBuf, 4);
+	}
+	
+	if((ucType[0] == AUDIO_ENCODE_TYPE[0])
+		&& (ucType[1] == AUDIO_ENCODE_TYPE[1])
+		&& (ucType[2] == AUDIO_ENCODE_TYPE[2])
+		&& (ucType[3] == AUDIO_ENCODE_TYPE[3]))
+	{
+		memcpy(&m_AudioEncode, pTmpBuf, 4);
+	}
+}
+
+void MP4File::PackageSelfData(
+	uint32_t uiFlag, uint8_t* pTmpBuf, uint8_t* pTmp24Buf, CFDNode* pNode, uint8_t* ucType, uint32_t* uiPos, 
+	uint32_t* iMemSize, bool* bIsAddFlag, bool* bIsFinishAddFlag)
+{//打包自定义数据
+	int iPos = 0;
+	
+	if((ucType[0] == ADJOURN[0])
+		&& (ucType[1] == ADJOURN[1])
+		&& (ucType[2] == ADJOURN[2])
+		&& (ucType[3] == ADJOURN[3]))
+	{
+		m_AdjournPos = GetTailPositonOfBuf();
+	}
+	
+	if((ucType[0] == ENCRYPTION_TYPE[0])
+		&& (ucType[1] == ENCRYPTION_TYPE[1])
+		&& (ucType[2] == ENCRYPTION_TYPE[2])
+		&& (ucType[3] == ENCRYPTION_TYPE[3]))
+	{
+		memcpy(&m_Encryption, pTmpBuf+24, 4);
+	}
+	
+	if((ucType[0] == AUDIO_ENCODE_TYPE[0])
+		&& (ucType[1] == AUDIO_ENCODE_TYPE[1])
+		&& (ucType[2] == AUDIO_ENCODE_TYPE[2])
+		&& (ucType[3] == AUDIO_ENCODE_TYPE[3]))
+	{
+		memcpy(&m_AudioEncode, pTmpBuf+24, 4);
+	}
+
+	//组装自定义头
+	iPos = 0;
+	memcpy(pTmpBuf+iPos, SELF_DEFINE_FLAG, 8);
+	iPos += 8;
+	WriteUint32((uint8_t*)(pTmpBuf+iPos), SELF_VERSION);
+	iPos += 4;
+	WriteUint32((uint8_t*)(pTmpBuf+iPos), sizeof(BUnit)+(*uiPos));
+	iPos += 4;
+	memcpy((uint8_t*)(pTmpBuf+iPos), ucType, 4);
+	iPos += 4;
+	WriteUint32((uint8_t*)(pTmpBuf+iPos), (*iMemSize));
+	iPos += 4;
+
+	log.infof("line:%d. %s,membersize=%d.\n", __LINE__, ucType, (*iMemSize));
+	
+	SetMdatSize(sizeof(BUnit)+(*uiPos)+8+12+(m_createFlags?LARGE_FILE_SIZE:0));
+
+	if(1 == uiFlag)
+	{
+		(void)InsertChildAtom(m_pRootAtom, "mdat",1);
+		m_pRootAtom->FirstWriteMdat();		
+	}
+	else
+	{
+		StartNewMdat();
+	}
+	WriteBytes(pTmpBuf, sizeof(BUnit)+(*uiPos)+12);
+	
+	m_bAddFlag = true;
+    EndOldMdat();
+	(*bIsAddFlag) = true;
+
+	if(2 == uiFlag)
+	{
+		(*uiPos) = 0;
+		memcpy(ucType, pNode->m_pData->m_ucType, 4);
+		log.infof("--- line:%d.--->change new type.%s.\n", __LINE__, ucType);
+		
+		memcpy(pTmp24Buf+(*uiPos), pNode->m_pData->m_pUserData, pNode->m_pData->m_uiSize - sizeof(BUnit));
+		(*uiPos) += pNode->m_pData->m_uiSize - sizeof(BUnit);
+		(*iMemSize) = pNode->m_pData->m_uiMemSize;
+		(*bIsFinishAddFlag) = true;
+	}
+}
+
+
+int64_t MP4File::GetFileTailSize()
+{
+	return m_ui64FileTailSize;
+}
+
+void MP4File::WriteUint32(uint8_t* uiBuf, uint32_t uiValue)
+{
+    uiBuf[0] = (uiValue >> 24) & 0xFF;
+    uiBuf[1] = (uiValue >> 16) & 0xFF;
+    uiBuf[2] = (uiValue >> 8) & 0xFF;
+    uiBuf[3] = uiValue & 0xFF;
+}
+
+bool MP4File::WriteAlignData(uint8_t* unitBuf, uint64_t uinitBufSize, uint32_t uiVfSize)
+{//数据对齐
+	log.infof("...uinitBufSize... [%llu].", uinitBufSize);
+	if(m_eBoxType == MP4_DEFAULT)
+	{
+		m_VirtualFrameFillSize = uinitBufSize;
+		m_VirtualFramePos = uinitBufSize+8+(m_createFlags?LARGE_FILE_SIZE:0);
+
+		log.infof("uinitBufSize=%llu, uiVfSize=%u\n",uinitBufSize,  uiVfSize);
+		EndOldMdat();
+		SetMdatSize(uiVfSize+8+(m_createFlags?LARGE_FILE_SIZE:0));
+		StartNewMdat();
+	}
+	return true;
+}
+
+bool MP4File::SetRealtimeCallbackFun(void* callbackFun)
+{
+	m_RealtimeStreamFun = (InnerRealTimeCallbackFun)callbackFun;
+	return true;
+}
+
+bool MP4File::SetSelfDataMode(uint32_t uiMode)
+{
+	m_SelfDataMode = uiMode;
+	return true;
+}
+
+bool MP4File::AlignTail(MP4BoxType eType, uint32_t uiLength)
+{
+	m_eBoxType = eType;
+	m_ui32DamgeBoxSize = uiLength;
+	return true;
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////
 

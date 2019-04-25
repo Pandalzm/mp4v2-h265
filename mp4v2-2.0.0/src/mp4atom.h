@@ -192,6 +192,12 @@ public:
     virtual void Rewrite();
     virtual void FinishWrite(bool use64 = false);
     virtual void Dump(uint8_t indent, bool dumpImplicits);
+    virtual void SetMulMdatCurSize( uint64_t mdatSize )
+	{
+	}
+	virtual void FirstWriteMdat(bool use64 = false)
+	{
+	}
 
     bool GetLargesizeMode();
 
@@ -238,7 +244,7 @@ protected:
     MP4Atom*    m_pParentAtom;
     uint8_t m_depth;
 
-    MP4PropertyArray    m_pProperties;
+    MP4PropertyArray    m_pProperties;//cwm 保存moov.trak[0].mdia.minf.stbl.stsd.hev1.hvcC.AVCProfileIndication类似的信息
     MP4AtomInfoArray    m_pChildAtomInfos;
     MP4AtomArray        m_pChildAtoms;
 private:

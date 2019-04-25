@@ -328,7 +328,66 @@ static char* PrintVideoInfo(
     if (media_data_name == NULL) {
         typeName = "Unknown - no media data name";
         foundTypeName = true;
-    } else if ((strcasecmp(media_data_name, "avc1") == 0) ||
+    }
+	else if ((strcasecmp(media_data_name, "hev1") == 0) ||
+				  (strcasecmp(originalFormat, "265b") == 0)) {
+		   // avc
+		   uint8_t profile, level;
+		   char profileb[20], levelb[20];
+		   if (MP4GetTrackH265ProfileLevel(mp4File, trackId,
+										   &profile, &level)) {
+			   if (profile == 66) {
+				   strcpy(profileb, "Baseline");
+			   } else if (profile == 77) {
+				   strcpy(profileb, "Main");
+			   } else if (profile == 88) {
+				   strcpy(profileb, "Extended");
+			   } else if (profile == 100) {
+				   strcpy(profileb, "High");
+			   } else if (profile == 110) {
+				   strcpy(profileb, "High 10");
+			   } else if (profile == 122) {
+				   strcpy(profileb, "High 4:2:2");
+			   } else if (profile == 144) {
+				   strcpy(profileb, "High 4:4:4");
+			   } else {
+				   snprintf(profileb, 20, "Unknown Profile %x", profile);
+			   }
+			   switch (level) {
+			   case 10:
+			   case 20:
+			   case 30:
+			   case 40:
+			   case 50:
+				   snprintf(levelb, 20, "%u", level / 10);
+				   break;
+			   case 11:
+			   case 12:
+			   case 13:
+			   case 21:
+			   case 22:
+			   case 31:
+			   case 32:
+			   case 41:
+			   case 42:
+			   case 51:
+				   snprintf(levelb, 20, "%u.%u", level / 10, level % 10);
+				   break;
+			   default:
+				   snprintf(levelb, 20, "unknown level %x", level);
+				   break;
+			   }
+			   if (originalFormat != NULL && originalFormat[0] != '\0')
+				   snprintf(oformatbuffer, 32, "(%s) ", originalFormat);
+			   snprintf(typebuffer, sizeof(typebuffer), "H265 %s%s@%s",
+						oformatbuffer, profileb, levelb);
+			   typeName = typebuffer;
+		   } else {
+			   typeName = "H.265 - profile/level error";
+		   }
+		   foundTypeName = true;
+	   }
+	else if ((strcasecmp(media_data_name, "avc1") == 0) ||
                (strcasecmp(originalFormat, "264b") == 0)) {
         // avc
         uint8_t profile, level;

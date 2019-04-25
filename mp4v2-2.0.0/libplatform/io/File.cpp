@@ -129,6 +129,67 @@ File::close()
     return false;
 }
 
+//////////////////////////////////////////////////
+
+void 
+File::SetRealTimeMode(int32_t _iMode)
+{
+	_provider.SetRealTimeMode(_iMode);
+}
+
+int32_t 
+File::GetRealTimeMode( void )
+{
+	return _provider.GetRealTimeMode();
+}
+
+bool 
+File::GetRealTimeData( uint8_t** pui8Data, uint64_t* _pui64DataSize)
+{
+	return _provider.GetRealTimeData(pui8Data, _pui64DataSize);
+}
+
+
+uint64_t 
+File::GetPositonOfBuf( void )
+{
+	return _provider.GetPositonOfBuf();
+}
+
+uint64_t 
+File::GetTailPositonOfBuf( void )
+{
+	return _provider.GetTailPositonOfBuf();
+}
+
+File::File( std::string name_, Mode mode_, FileProvider* provider_, int32_t _i32Choice )
+    : _name     ( name_ )
+    , _isOpen   ( false )
+    , _mode     ( mode_ )
+    , _size     ( 0 )
+    , _position ( 0 )
+    , _provider ( provider_ ? *provider_ : standardRealtimeStream() )
+    , name      ( _name )
+    , isOpen    ( _isOpen )
+    , mode      ( _mode )
+    , size      ( _size )
+    , position  ( _position )
+{
+}
+
+void 
+File::RecordAllBufNonius( void )
+{
+	_provider.RecordAllBufNonius();
+}
+
+uint64_t 
+File::GetLastAllBufNonius( void )
+{
+	return _provider.GetLastAllBufNonius();
+}
+
+
 ///////////////////////////////////////////////////////////////////////////////
 
 CustomFileProvider::CustomFileProvider( const MP4FileProvider& provider )
@@ -182,4 +243,49 @@ CustomFileProvider::close()
 
 ///////////////////////////////////////////////////////////////////////////////
 
+//////////////////////////////////////////////////
+
+///////////////////////////////////////////////////////////////////////////////
+
+void 
+CustomFileProvider::SetRealTimeMode(int32_t _iMode)
+{
+}
+
+int32_t 
+CustomFileProvider::GetRealTimeMode( void )
+{
+	return MP4_NORMAL;
+}
+
+bool 
+CustomFileProvider::GetRealTimeData( uint8_t** pui8Data, uint64_t* _pui64DataSize)
+{
+	return false;
+}
+
+uint64_t 
+CustomFileProvider::GetPositonOfBuf( void )
+{
+	return 0;
+}
+
+uint64_t 
+CustomFileProvider::GetTailPositonOfBuf( void )
+{
+	return 0;
+}
+
+void 
+CustomFileProvider::RecordAllBufNonius( void )
+{
+}
+
+uint64_t 
+CustomFileProvider::GetLastAllBufNonius( void )
+{
+	return 0;
+}
+
+///////////////////////////////////////////////////////////////////////////////
 }}} // namespace mp4v2::platform::io

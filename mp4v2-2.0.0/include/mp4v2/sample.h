@@ -554,4 +554,61 @@ int8_t MP4GetSampleSync(
 
 /* @} ***********************************************************************/
 
+//////////////////////////////////////////////////
+
+/** Write a track sample.
+ *
+ *  MP4WriteSampleRT writes the given sample at the end of the specified track.
+ *  Currently the library does not support random insertion of samples into
+ *  the track timeline. Note that with mp4 there cannot be any holes or
+ *  overlapping samples in the track timeline. The last three arguments give
+ *  optional sample information.
+ *
+ *  The value of duration can be given as #MP4_INVALID_DURATION if all samples
+ *  in the track have the same duration. This can be specified with
+ *  MP4AddTrack() and related functions.
+ *
+ *  Typically for audio none of the optional arguments are needed. MPEG audio
+ *  such as MP3 or AAC has a fixed sample duration and every sample can be
+ *  accessed at random.
+ *
+ *  For video, all of the optional arguments could be  needed. MPEG video
+ *  can be encoded at a variable frame rate, with only occasional random
+ *  access points, and with "B frames" which cause the rendering  (display)
+ *  order of the video frames to differ from the storage/decoding order.
+ *
+ *  Other media types fall between these two extremes.
+ *
+ *  @param hFile handle of file for operation.
+ *  @param trackId id of track for operation.
+ *  @param pBytes pointer to sample data.
+ *  @param numBytes length of sample data in bytes.
+ *  @param duration sample duration. Caveat: should be in track timescale.
+ *  @param renderingOffset the rendering offset for this sample.
+ *      Currently the only media type that needs this feature is MPEG
+ *      video. Caveat: The offset should be in the track timescale.
+ *  @param isSyncSample the sync/random access flag for this sample.
+ *  @realimeData out parameter, the buffer of contain realtime stream
+ *  @realimeDataSize out parameter, realtime stream buffer size
+ *
+ *  @return <b>true</b> on success, <b>false</b> on failure.
+ *
+ *  @see MP4AddTrack().
+ */
+MP4V2_EXPORT
+bool MP4WriteSampleRT(
+	MP4FileHandle  hFile,
+	MP4TrackId	   trackId,
+	const uint8_t* pBytes,
+	uint32_t	   numBytes,
+	MP4Duration    duration DEFAULT(MP4_INVALID_DURATION),
+	MP4Duration    renderingOffset DEFAULT(0),
+	bool		   isSyncSample DEFAULT(true),
+	bool		   isVirtualFrame DEFAULT(false),
+    uint8_t**      realimeData DEFAULT(NULL),
+    uint64_t*      realimeDataSize DEFAULT(NULL) );
+
+
+/** @} ***********************************************************************/
+
 #endif /* MP4V2_SAMPLE_H */

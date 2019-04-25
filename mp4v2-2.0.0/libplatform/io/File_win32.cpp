@@ -45,6 +45,16 @@ private:
      * The UTF-8 encoded file name
      */
     std::string _name;
+
+	//////////
+public:
+	void SetRealTimeMode(int32_t _iMode);
+	int32_t GetRealTimeMode( void );
+	bool GetRealTimeData( uint8_t** pui8Data, uint64_t* _pui64DataSize);
+	uint64_t GetPositonOfBuf( void );
+	uint64_t GetTailPositonOfBuf( void );
+	void RecordAllBufNonius( void );
+	uint64_t GetLastAllBufNonius( void );
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -254,5 +264,46 @@ FileProvider::standard()
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+
+//////////////////////////////////////////////////
+void 
+StandardFileProvider::SetRealTimeMode(int32_t _iMode)
+{
+}
+
+int32_t 
+StandardFileProvider::GetRealTimeMode( void )
+{
+	return MP4_NORMAL;
+}
+
+bool 
+StandardFileProvider::GetRealTimeData( uint8_t** pui8Data, uint64_t* _pui64DataSize)
+{
+	return false;
+}
+
+uint64_t 
+StandardFileProvider::GetPositonOfBuf( void )
+{
+	return 0;
+}
+
+uint64_t 
+StandardFileProvider::GetTailPositonOfBuf( void )
+{
+	return 0;
+}
+
+void 
+StandardFileProvider::RecordAllBufNonius( void )
+{
+}
+
+uint64_t 
+StandardFileProvider::GetLastAllBufNonius( void )
+{
+	return 0;
+}
 
 }}} // namespace mp4v2::platform::io

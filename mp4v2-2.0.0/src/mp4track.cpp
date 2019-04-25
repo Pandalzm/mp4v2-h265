@@ -28,7 +28,7 @@
  */
 
 #include "src/impl.h"
-
+#include "libavutil/log.h"
 namespace mp4v2 { namespace impl {
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -245,6 +245,9 @@ MP4Track::MP4Track(MP4File& file, MP4Atom& trakAtom)
         m_sdtpLog.assign( (char*)buffer, bufsize );
         free( buffer );
     }
+
+    //////////
+    m_ui64ChunkSize = 0;	
 }
 
 MP4Track::~MP4Track()
@@ -462,11 +465,42 @@ void MP4Track::WriteSample(
     UpdateRenderingOffsets(m_writeSampleId, renderingOffset);
 
     UpdateSyncSamples(m_writeSampleId, isSyncSample);
+	
+#if 0
+		if(m_File.IsMulMdatMode())
+		{
+			if(m_File.IsThisTimes())
+			{
+				(void)m_File.InsertChildAtom(m_File.GetRootAtom(), "mdat", 1);
+				m_File.GetRootAtom()->FirstWriteMdat();
+				m_File.ResetThisTimes();
+			}
+		}
+		
+		if(m_File.IsMulMdatMode())
+		{
+			if(m_File.GetActualJudgeMdatSize() + m_sizeOfDataInChunkBuffer > m_File.GetMdatSize())
+			{
+				m_File.ResetActualJudgeMdatSize();
+				m_File.EndOldMdat();
+				m_File.StartNewMdat();
+			}
+		}
+#endif
 
     if (IsChunkFull(m_writeSampleId)) {
         WriteChunkBuffer();
         m_curMode = curMode;
     }
+	
+#if 0
+		if(m_File.IsMulMdatMode())
+		{
+			m_File.AddActualJudgeMdatSize(m_sizeOfDataInChunkBuffer);
+		}
+#endif
+
+	m_File.m_ui64FrameCount++;
 
     UpdateDurations(duration);
 
@@ -489,11 +523,65 @@ void MP4Track::WriteSampleDependency(
 
 void MP4Track::WriteChunkBuffer()
 {
-    if (m_sizeOfDataInChunkBuffer == 0) {
+    if (m_sizeOfDataInChunkBuffer == 0) 
+	{
         return;
     }
 
-    uint64_t chunkOffset = m_File.GetPosition();
+	uint64_t chunkOffset = 0;
+
+	if(m_File.GetRealTimeMode() > MP4_NORMAL)
+	{
+    	chunkOffset = m_File.GetTailPositonOfBuf();
+		
+		if(m_File.m_bNormalVirtualFrameFlag || (m_File.m_eBoxType > MP4_DEFAULT))
+		{
+			m_File.m_bNormalVirtualFrameFlag = false;
+			m_File.m_NormalVirtualFramePos = chunkOffset;
+		}
+		if(m_File.m_bVirtualFrameFlag && (MP4_DEFAULT == m_File.m_eBoxType))
+		{
+			m_File.m_bVirtualFrameFlag = false;
+			m_File.m_NormalVirtualFramePos = m_File.m_VirtualFramePos;
+		}
+		
+		#if 1
+		if(m_File.m_VirtualFramePos > 0)
+		{/*ÐÞ¸´Ê¹ÓÃ*/
+			chunkOffset = m_File.m_VirtualFramePos;
+			m_File.m_MoovPos = chunkOffset + m_sizeOfDataInChunkBuffer;
+			log.infof("m_File.m_MoovPos=%llu, chunkOffset=%llu,m_sizeOfDataInChunkBuffer=%u\n",
+				m_File.m_MoovPos , chunkOffset , m_sizeOfDataInChunkBuffer);
+		}
+		#endif
+	}
+	else
+	{
+    	chunkOffset = m_File.GetPosition();
+	}
+
+#if 0
+    if(m_File.IsMulMdatMode())
+	{
+		if(m_File.IsThisTimes())
+		{
+            (void)m_File.InsertChildAtom(m_File.GetRootAtom(), "mdat", 1);
+			m_File.GetRootAtom()->FirstWriteMdat();
+		    m_File.ResetThisTimes();
+		}
+	}
+	
+    if(m_File.IsMulMdatMode())
+	{
+		if(m_File.GetActualJudgeMdatSize() + m_sizeOfDataInChunkBuffer > m_File.GetMdatSize())
+		{
+			m_File.ResetActualJudgeMdatSize();
+            m_File.EndOldMdat();
+			m_File.StartNewMdat();
+		}
+	}
+#endif
+	
 
     // write chunk buffer
     m_File.WriteBytes(m_pChunkBuffer, m_sizeOfDataInChunkBuffer);
@@ -502,6 +590,18 @@ void MP4Track::WriteChunkBuffer()
                   GetFile().GetFilename().c_str(), 
                   m_trackId, chunkOffset, m_sizeOfDataInChunkBuffer,
                   m_sizeOfDataInChunkBuffer, m_chunkSamples);
+
+    if(m_File.IsMulMdatMode())
+	{
+		m_ui64ChunkSize += m_sizeOfDataInChunkBuffer;
+    }
+
+#if 0
+	if(m_File.IsMulMdatMode())
+	{
+	    m_File.AddActualJudgeMdatSize(m_sizeOfDataInChunkBuffer);
+	}
+#endif
 
     UpdateSampleToChunk(m_writeSampleId,
                         m_pChunkCountProperty->GetValue() + 1,
@@ -609,16 +709,39 @@ void MP4Track::FinishSdtp()
         if( !found )
             ftyp->compatibleBrands.AddValue( "avc1" );
     }
+	
+	//cwm
+	if( ftyp ) {
+		bool found = false;
+		const uint32_t max = ftyp->compatibleBrands.GetCount();
+		for( uint32_t i = 0; i < max; i++ ) {
+			if( !strcmp( ftyp->compatibleBrands.GetValue( i ), "hev1" )) {
+				found = true;
+				break;
+			}
+		}
+	
+		if( !found )
+			ftyp->compatibleBrands.AddValue( "hev1" );
+	}
 }
 
 bool MP4Track::IsChunkFull(MP4SampleId sampleId)
 {
-    if (m_samplesPerChunk) {
-        return m_chunkSamples >= m_samplesPerChunk;
-    }
+	if(m_File.GetRealTimeMode() > MP4_NORMAL)
+	{
+		return true;
+	}
+	else
+	{
+		if (m_samplesPerChunk) 
+		{
+	        return m_chunkSamples >= m_samplesPerChunk;
+    	}
 
-    ASSERT(m_durationPerChunk);
-    return m_chunkDuration >= m_durationPerChunk;
+	    ASSERT(m_durationPerChunk);
+	    return m_chunkDuration >= m_durationPerChunk;
+	}
 }
 
 uint32_t MP4Track::GetNumberOfSamples()
@@ -754,6 +877,8 @@ void MP4Track::UpdateSampleSizes(MP4SampleId sampleId, uint32_t numBytes)
             if (m_pStszFixedSampleSizeProperty != NULL)
                 m_pStszFixedSampleSizeProperty->SetValue(0);
             SampleSizePropertyAddValue(0);
+			
+			m_File.m_ui64FileTailSize += 4;
         } else {
             // presume sample size is fixed
             m_pStszFixedSampleSizeProperty->SetValue(numBytes);
@@ -779,10 +904,12 @@ void MP4Track::UpdateSampleSizes(MP4SampleId sampleId, uint32_t numBytes)
                 uint32_t samples = GetNumberOfSamples();
                 for (MP4SampleId sid = 1; sid <= samples; sid++) {
                     SampleSizePropertyAddValue(fixedSampleSize);
+					m_File.m_ui64FileTailSize += 4;
                 }
             }
             // add size value for this sample
             SampleSizePropertyAddValue(numBytes);
+			m_File.m_ui64FileTailSize += 4;
         }
     }
     // either way, we increment the number of samples.
@@ -862,7 +989,7 @@ uint32_t MP4Track::GetSampleStscIndex(MP4SampleId sampleId)
 {
     uint32_t stscIndex;
     uint32_t numStscs = m_pStscCountProperty->GetValue();
-
+	PrintInfo("numStscs=%d", numStscs);
     if (numStscs == 0) {
         throw new Exception("No data chunks exist", __FILE__, __LINE__, __FUNCTION__ );
     }
@@ -879,6 +1006,7 @@ uint32_t MP4Track::GetSampleStscIndex(MP4SampleId sampleId)
         stscIndex -= 1;
     }
 
+	PrintInfo("stscIndex=%d", stscIndex);
     return stscIndex;
 }
 
@@ -886,6 +1014,8 @@ File* MP4Track::GetSampleFile( MP4SampleId sampleId )
 {
     uint32_t stscIndex = GetSampleStscIndex( sampleId );
     uint32_t stsdIndex = m_pStscSampleDescrIndexProperty->GetValue( stscIndex );
+
+	PrintInfo("stsdIndex=%d", stsdIndex);
 
     // check if the answer will be the same as last time
     if( m_lastStsdIndex && stsdIndex == m_lastStsdIndex )
@@ -970,28 +1100,41 @@ uint64_t MP4Track::GetSampleFileOffset(MP4SampleId sampleId)
     uint32_t firstChunk =
         m_pStscFirstChunkProperty->GetValue(stscIndex);
 
+	PrintInfo("firstChunk=%d", firstChunk);
+
     MP4SampleId firstSample =
         m_pStscFirstSampleProperty->GetValue(stscIndex);
 
+	PrintInfo("firstSample=%d", firstSample);
+
     uint32_t samplesPerChunk =
         m_pStscSamplesPerChunkProperty->GetValue(stscIndex);
+
+	PrintInfo("samplesPerChunk=%d", samplesPerChunk);
 
     // chunkId tells which is the absolute chunk number that this sample
     // is stored in.
     MP4ChunkId chunkId = firstChunk +
                          ((sampleId - firstSample) / samplesPerChunk);
+	PrintInfo("chunkId=%d", chunkId);
 
     // chunkOffset is the file offset (absolute) for the start of the chunk
     uint64_t chunkOffset = m_pChunkOffsetProperty->GetValue(chunkId - 1);
+	PrintInfo("chunkOffset=%d", chunkOffset);
 
     MP4SampleId firstSampleInChunk =
         sampleId - ((sampleId - firstSample) % samplesPerChunk);
+	PrintInfo("firstSampleInChunk=%d", firstSampleInChunk);
 
     // need cumulative samples sizes from firstSample to sampleId - 1
     uint32_t sampleOffset = 0;
     for (MP4SampleId i = firstSampleInChunk; i < sampleId; i++) {
         sampleOffset += GetSampleSize(i);
     }
+
+	PrintInfo("sampleOffset=%d", sampleOffset);
+
+	PrintInfo("chunkOffset + sampleOffset=%d", chunkOffset + sampleOffset);
 
     return chunkOffset + sampleOffset;
 }
@@ -1015,6 +1158,8 @@ void MP4Track::UpdateSampleToChunk(MP4SampleId sampleId,
         m_pStscFirstSampleProperty->AddValue(sampleId - samplesPerChunk + 1);
 
         m_pStscCountProperty->IncrementValue();
+		
+		m_File.m_ui64FileTailSize += 4;
     }
 }
 
@@ -1022,8 +1167,10 @@ void MP4Track::UpdateChunkOffsets(uint64_t chunkOffset)
 {
     if (m_pChunkOffsetProperty->GetType() == Integer32Property) {
         ((MP4Integer32Property*)m_pChunkOffsetProperty)->AddValue(chunkOffset);
+		m_File.m_ui64FileTailSize += 4;
     } else {
         ((MP4Integer64Property*)m_pChunkOffsetProperty)->AddValue(chunkOffset);
+		m_File.m_ui64FileTailSize += 8;
     }
     m_pChunkCountProperty->IncrementValue();
 }
@@ -1158,6 +1305,8 @@ void MP4Track::UpdateSampleTimes(MP4Duration duration)
         m_pSttsSampleCountProperty->AddValue(1);
         m_pSttsSampleDeltaProperty->AddValue(duration);
         m_pSttsCountProperty->IncrementValue();;
+		
+		m_File.m_ui64FileTailSize += 8;
     }
 }
 
@@ -1244,6 +1393,8 @@ void MP4Track::UpdateRenderingOffsets(MP4SampleId sampleId,
             m_pCttsSampleCountProperty->AddValue(sampleId - 1);
             m_pCttsSampleOffsetProperty->AddValue(0);
             m_pCttsCountProperty->IncrementValue();;
+			
+			m_File.m_ui64FileTailSize += 8;
         }
     }
 
@@ -1263,6 +1414,8 @@ void MP4Track::UpdateRenderingOffsets(MP4SampleId sampleId,
         m_pCttsSampleCountProperty->AddValue(1);
         m_pCttsSampleOffsetProperty->AddValue(renderingOffset);
         m_pCttsCountProperty->IncrementValue();
+		
+		m_File.m_ui64FileTailSize += 8;
     }
 }
 
@@ -1369,16 +1522,23 @@ bool MP4Track::IsSyncSample(MP4SampleId sampleId)
         return true;
     }
 
-    uint32_t numStss = m_pStssCountProperty->GetValue();
+    uint32_t numStss = m_pStssCountProperty->GetValue();//cwm_q
+	PrintInfo("numStss=%d", numStss);
     uint32_t stssLIndex = 0;
     uint32_t stssRIndex = numStss - 1;
-
+	//cwmÕÛ°ë²éÕÒ
+	//PrintInfo("sampleId=%d", sampleId);
     while (stssRIndex >= stssLIndex) {
+		//PrintInfo("stssRIndex=%d", stssRIndex);
+		//PrintInfo("stssLIndex=%d", stssLIndex);
         uint32_t stssIndex = (stssRIndex + stssLIndex) >> 1;
+		//PrintInfo("stssIndex=%d", stssIndex);
         MP4SampleId syncSampleId =
             m_pStssSampleProperty->GetValue(stssIndex);
+		//PrintInfo("syncSampleId=%d", syncSampleId);
 
         if (sampleId == syncSampleId) {
+			PrintInfo("find idr sampleId == syncSampleId =%d", syncSampleId);
             return true;
         }
 
@@ -1388,6 +1548,8 @@ bool MP4Track::IsSyncSample(MP4SampleId sampleId)
             stssRIndex = stssIndex - 1;
         }
     }
+	
+	PrintInfo("find no idr sampleId=%d", sampleId);
 
     return false;
 }
@@ -1423,6 +1585,8 @@ void MP4Track::UpdateSyncSamples(MP4SampleId sampleId, bool isSyncSample)
         if (m_pStssCountProperty) {
             m_pStssSampleProperty->AddValue(sampleId);
             m_pStssCountProperty->IncrementValue();
+			
+			m_File.m_ui64FileTailSize += 4;
         } // else nothing to do (yet)
 
     } else { // !isSyncSample
@@ -1430,6 +1594,7 @@ void MP4Track::UpdateSyncSamples(MP4SampleId sampleId, bool isSyncSample)
         if (m_pStssCountProperty == NULL) {
 
             MP4Atom* pStssAtom = AddAtom("trak.mdia.minf.stbl", "stss");
+			PrintInfo("add stss atom");
 
             ASSERT(pStssAtom->FindProperty(
                        "stss.entryCount",
@@ -1444,6 +1609,8 @@ void MP4Track::UpdateSyncSamples(MP4SampleId sampleId, bool isSyncSample)
             for (MP4SampleId sid = 1; sid < samples; sid++) {
                 m_pStssSampleProperty->AddValue(sid);
                 m_pStssCountProperty->IncrementValue();
+				
+				m_File.m_ui64FileTailSize += 4;
             }
         } // else nothing to do
     }
@@ -1494,8 +1661,16 @@ MP4Duration MP4Track::ToMovieDuration(MP4Duration trackDuration)
 
 void MP4Track::UpdateModificationTimes()
 {
-    // update media and track modification times
-    MP4Timestamp now = MP4GetAbsTimestamp();
+	MP4Timestamp now = 0;
+	if(1)
+	{
+		now = m_File.GetAllCreateTime();
+	}
+	else
+	{
+	    // update media and track modification times
+	    now = MP4GetAbsTimestamp();
+	}
     m_pMediaModificationProperty->SetValue(now);
     m_pTrackModificationProperty->SetValue(now);
 }
@@ -1610,7 +1785,7 @@ void MP4Track::RewriteChunk(MP4ChunkId chunkId,
                             uint8_t* pChunk, uint32_t chunkSize)
 {
     uint64_t chunkOffset = m_File.GetPosition();
-
+    log.infof("!!!Warnning: If call the MP4Track::RewriteChunk, need to deal specially!\n");
     m_File.WriteBytes(pChunk, chunkSize);
 
     m_pChunkOffsetProperty->SetValue(chunkOffset, chunkId - 1);
@@ -1903,6 +2078,22 @@ MP4Duration MP4Track::GetDurationPerChunk()
 void MP4Track::SetDurationPerChunk( MP4Duration duration )
 {
     m_durationPerChunk = duration;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+//////////////////////////////////////////////////
+
+///////////////////////////////////////////////////////////////////////////////
+
+uint64_t MP4Track::GetChunkSize( void )
+{
+    return m_ui64ChunkSize;
+}
+
+void MP4Track::ResetChunkSize( void )
+{
+    m_ui64ChunkSize = 0;
 }
 
 ///////////////////////////////////////////////////////////////////////////////

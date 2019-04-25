@@ -82,6 +82,21 @@ private:
     uint64_t     m_rewrite_ftypPosition;
     MP4FreeAtom* m_rewrite_free;
     uint64_t     m_rewrite_freePosition;
+
+	//////////
+public:
+    bool StartNewPacket( uint64_t );
+    bool EndOldPacket( void );
+	uint32_t GetMulMdatIndex( void );
+	
+	virtual void FirstWriteMdat(bool use64 = false);
+    virtual void SetMulMdatCurSize( uint64_t mdatSize )
+	{
+	}
+
+public:
+    uint64_t m_ui64PacketSize;
+	uint32_t m_ui32MulMdatIndex;
 };
 
 /***********************************************************************
@@ -178,6 +193,30 @@ private:
     MP4AvcCAtom &operator= ( const MP4AvcCAtom &src );
 };
 
+//===========================================cwm
+// H.265 atoms
+
+class MP4Hev1Atom : public MP4Atom {
+public:
+    MP4Hev1Atom(MP4File &file);
+    void Generate();
+private:
+    MP4Hev1Atom();
+    MP4Hev1Atom( const MP4Hev1Atom &src );
+    MP4Hev1Atom &operator= ( const MP4Hev1Atom &src );
+};
+
+class MP4HvcCAtom : public MP4Atom {
+public:
+    MP4HvcCAtom(MP4File &file);
+    void Generate();
+    void Clone(MP4HvcCAtom *dstAtom);
+private:
+    MP4HvcCAtom();
+    MP4HvcCAtom( const MP4HvcCAtom &src );
+    MP4HvcCAtom &operator= ( const MP4HvcCAtom &src );
+};
+//==============================================cwm
 
 class MP4D263Atom : public MP4Atom {
 public:
@@ -387,6 +426,17 @@ private:
     MP4MdatAtom();
     MP4MdatAtom( const MP4MdatAtom &src );
     MP4MdatAtom &operator= ( const MP4MdatAtom &src );
+
+	//////////
+public:
+    void BeginWrite(bool use64 = false);
+    void FinishWrite(bool use64 = false);
+
+    void SetMulMdatCurSize( uint64_t );
+	
+private:
+	uint64_t m_ui64CurSize;
+		
 };
 
 class MP4MdhdAtom : public MP4Atom {
